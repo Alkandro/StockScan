@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "StockScan",
+    "slug": "stockscan",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "stockscan",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "StockScan necesita la cámara para leer códigos QR.",
+          "barcodeScannerEnabled": true
+        }
+      ],
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.alkandro.stockscan"
+    }
+  }
+}
