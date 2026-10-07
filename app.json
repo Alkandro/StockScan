@@ -14,13 +14,34 @@
           "barcodeScannerEnabled": true
         }
       ],
-      "expo-router"
+      "expo-router",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "ios": {
       "bundleIdentifier": "com.alkandro.stockscan"
+      
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "409819c7-6051-4d14-855d-c4de552ec89a"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/409819c7-6051-4d14-855d-c4de552ec89a"
+    },
+    "runtimeVersion": {
+  "policy": "appVersion"
+},
+    "android": {
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+      
     }
   }
 }
