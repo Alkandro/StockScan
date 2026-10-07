@@ -20,8 +20,10 @@
     "expo-router": "~57.0.24",
     "expo-updates": "~57.0.25",
     "firebase": "^12.19.0",
+    "i18next": "^26.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-i18next": "^17.0.16",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-web": "^0.21.2"

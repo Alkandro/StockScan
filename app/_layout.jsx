@@ -1,3 +1,4 @@
+import "../i18n";
 import { Stack } from 'expo-router';
 import { AuthProvider } from '../context/AuthContext';
 
