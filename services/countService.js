@@ -3,15 +3,21 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   onSnapshot,
+  query,
   runTransaction,
-  setDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 const COUNTS = "counts";
 const BATCH_SIZE = 400;
+
+/** ID del documento de un producto a partir del código leído. */
+export function productIdFromQr(qrData) {
+  return encodeURIComponent(qrData.trim()).replace(/%/g, "_").slice(0, 140);
+}
 
 // La lista de cada usuario es un único documento: counts/{uid}
 export function countRef(userId) {
@@ -47,21 +53,6 @@ export function subscribeToCount(userId, onData, onError) {
   );
 }
 
-/** Escucha el estado de la lista: { status: "open" | "finalized", recordId }. */
-export function subscribeToCountMeta(userId, onData, onError) {
-  return onSnapshot(
-    countRef(userId),
-    (snap) => {
-      const data = snap.exists() ? snap.data() : {};
-      onData({
-        status: data.status || "open",
-        recordId: data.recordId || null,
-      });
-    },
-    onError,
-  );
-}
-
 /** Resta 1. Si llega a 0, elimina el renglón. */
 export async function decrementCountItem(userId, productId) {
   const ref = countItemRef(userId, productId);
@@ -87,31 +78,8 @@ export async function removeCountItem(userId, productId) {
   await deleteDoc(countItemRef(userId, productId));
 }
 
-export async function finalizeCount(userId, { recordId, totals }) {
-  await setDoc(
-    countRef(userId),
-    {
-      userId,
-      status: "finalized",
-      finalizedAt: new Date(),
-      recordId,
-      totalProducts: totals.products,
-      totalUnits: totals.units,
-    },
-    { merge: true },
-  );
-}
-
-export async function reopenCount(userId) {
-  await setDoc(
-    countRef(userId),
-    { userId, status: "open", reopenedAt: new Date() },
-    { merge: true },
-  );
-}
-
 /**
- * Elimina de Firebase la lista (renglones + documento de estado).
+ * Elimina de Firebase la lista (renglones + documento de estado, si existe).
  * No toca la colección "products" ni el historial.
  */
 export async function deleteCount(userId) {
@@ -127,4 +95,53 @@ export async function deleteCount(userId) {
 
   await deleteDoc(countRef(userId));
   return refs.length;
+}
+
+/**
+ * Restaura una lista del historial como lista actual.
+ * Solo si no hay una lista en curso: si ya hay renglones, lanza "list-not-empty".
+ * items: [{ productNumber, quantity }]
+ */
+export async function restoreCount(userId, { items, startedAt }) {
+  const itemsRef = collection(db, COUNTS, userId, "items");
+
+  const existing = await getDocs(query(itemsRef, limit(1)));
+  if (!existing.empty) {
+    const err = new Error("Ya hay una lista en curso.");
+    err.code = "list-not-empty";
+    throw err;
+  }
+
+  const now = new Date();
+  const createdAt = startedAt ? new Date(startedAt) : now;
+
+  const valid = items.filter(
+    (item) =>
+      item.productNumber &&
+      Number.isInteger(item.quantity) &&
+      item.quantity >= 1,
+  );
+
+  for (let i = 0; i < valid.length; i += BATCH_SIZE) {
+    const batch = writeBatch(db);
+    valid.slice(i, i + BATCH_SIZE).forEach((item) => {
+      batch.set(countItemRef(userId, productIdFromQr(item.productNumber)), {
+        productNumber: item.productNumber,
+        quantity: item.quantity,
+        countedBy: userId,
+        createdAt,
+        updatedAt: now,
+      });
+    });
+    await batch.commit();
+  }
+
+  // Limpia un estado "finalizada" viejo, si había quedado
+  try {
+    await deleteDoc(countRef(userId));
+  } catch (error) {
+    console.warn("No se pudo limpiar el estado anterior de la lista:", error);
+  }
+
+  return valid.length;
 }

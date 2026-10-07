@@ -48,6 +48,26 @@ export async function saveListRecord(
   return recordId;
 }
 
+/** Quita una lista del historial (se usa al reabrirla). */
+export async function removeListRecord(userId, recordId) {
+  const ref = doc(db, HISTORY, userId);
+
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) return;
+
+    const previous = Array.isArray(snap.data().records)
+      ? snap.data().records
+      : [];
+
+    transaction.set(ref, {
+      userId,
+      updatedAt: new Date(),
+      records: previous.filter((r) => r.id !== recordId),
+    });
+  });
+}
+
 /** Listas guardadas, de la más nueva a la más vieja. */
 export async function getHistoryRecords(userId) {
   const snap = await getDoc(doc(db, HISTORY, userId));

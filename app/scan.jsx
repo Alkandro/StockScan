@@ -21,8 +21,11 @@ import { registerProduct, scanProduct } from "../services/productService";
 // Tiempo de espera entre lecturas para no contar dos veces el mismo código
 const COOLDOWN_MS = 1500;
 const BANNER_MS = 2500;
-// Tras cancelar un producto nuevo, se ignora ese mismo código este tiempo
+// Tras registrar o cancelar un producto nuevo, se ignora ese mismo código
+// este tiempo, para que no se cuente sin querer mientras la cámara lo sigue viendo
+const IGNORE_AFTER_REGISTER_MS = 4000;
 const IGNORE_AFTER_CANCEL_MS = 4000;
+const REGISTER_BANNER_MS = 4000;
 
 export default function ScanScreen() {
   const { user } = useAuth();
@@ -74,10 +77,10 @@ export default function ScanScreen() {
     unlockTimer.current = setTimeout(unlock, COOLDOWN_MS);
   }, [unlock]);
 
-  const showBanner = useCallback((title, subtitle) => {
+  const showBanner = useCallback((title, subtitle, duration = BANNER_MS) => {
     setBanner({ title, subtitle });
     clearTimeout(bannerTimer.current);
-    bannerTimer.current = setTimeout(() => setBanner(null), BANNER_MS);
+    bannerTimer.current = setTimeout(() => setBanner(null), duration);
   }, []);
 
   if (!permission) {
@@ -118,7 +121,7 @@ export default function ScanScreen() {
     const code = String(data || "").trim();
     if (!code) return;
 
-    // Código recién cancelado: se ignora unos segundos
+    // Código recién registrado o cancelado: se ignora unos segundos
     if (
       ignoredRef.current.code === code &&
       Date.now() < ignoredRef.current.until
@@ -181,31 +184,32 @@ export default function ScanScreen() {
     try {
       const res = await registerProduct(code, name, user.uid);
 
+      // Registrar NO suma a la lista. Se ignora este código unos segundos
+      // para que no se cuente sin querer mientras la cámara lo sigue viendo.
+      ignoredRef.current = {
+        code,
+        until: Date.now() + IGNORE_AFTER_REGISTER_MS,
+      };
+
       setPending(null);
       setDescription("");
       showBanner(
         res.name || code,
         res.alreadyRegistered
-          ? `Ya estaba registrado · En tu lista: ${res.countQuantity}`
-          : `Registrado · En tu lista: ${res.countQuantity}`,
+          ? "Ya estaba registrado. Escanealo de nuevo para sumarlo."
+          : "Registrado. Escanealo de nuevo para sumarlo a tu lista.",
+        REGISTER_BANNER_MS,
       );
       unlockLater();
     } catch (error) {
       console.error("Error al registrar el producto:", error);
 
-      if (error?.code === "list-finalized") {
-        setPending(null);
-        setDescription("");
-        showFinalizedAlert(error.message);
-        return;
-      }
-
-      // El cuadro queda abierto: no se creó ni se sumó nada
+      // El cuadro queda abierto: no se registró nada
       Alert.alert(
         "No se pudo registrar",
         error?.code === "permission-denied"
-          ? "Firestore rechazó la operación. Verificá tu sesión y las reglas. No se sumó a tu lista."
-          : "Ocurrió un problema. No se registró ni se sumó a tu lista.",
+          ? "Firestore rechazó la operación. Verificá tu sesión y las reglas."
+          : "Ocurrió un problema y el producto no se registró.",
       );
     } finally {
       setRegistering(false);
@@ -222,7 +226,7 @@ export default function ScanScreen() {
 
     setPending(null);
     setDescription("");
-    showBanner("Producto nuevo cancelado", "No se sumó a tu lista");
+    showBanner("Producto nuevo cancelado", "No se registró ni se sumó");
     unlockLater();
   };
 
@@ -292,8 +296,9 @@ export default function ScanScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>✨ Producto nuevo</Text>
             <Text style={styles.modalText}>
-              Este código no está registrado. Escribí la descripción para
-              registrarlo; recién ahí se suma a tu lista.
+              Este código no está registrado. Escribí la descripción para darlo
+              de alta. Registrarlo no lo suma a tu lista: después escanealo de
+              nuevo para contarlo.
             </Text>
 
             <Text style={styles.modalLabel}>Código leído</Text>
@@ -327,7 +332,7 @@ export default function ScanScreen() {
               {registering ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.modalPrimaryText}>Registrar y sumar</Text>
+                <Text style={styles.modalPrimaryText}>Registrar</Text>
               )}
             </Pressable>
 
@@ -339,9 +344,7 @@ export default function ScanScreen() {
               onPress={handleCancelPending}
               disabled={registering}
             >
-              <Text style={styles.modalSecondaryText}>
-                Cancelar (no sumar)
-              </Text>
+              <Text style={styles.modalSecondaryText}>Cancelar</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -457,6 +460,7 @@ const styles = StyleSheet.create({
     color: "#FFF",
     fontSize: 14,
     marginTop: 2,
+    textAlign: "center",
   },
   listButton: {
     flexDirection: "row",

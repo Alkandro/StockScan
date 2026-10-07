@@ -8,11 +8,16 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, RADIUS } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
-import { clearHistory, getHistoryRecords } from "../../services/historyService";
+import { restoreCount } from "../../services/countService";
+import {
+  clearHistory,
+  getHistoryRecords,
+  removeListRecord,
+} from "../../services/historyService";
 
 function pad(n) {
   return String(n).padStart(2, "0");
@@ -36,6 +41,8 @@ export default function HistoryScreen() {
   const [expanded, setExpanded] = useState(false);
   const [openRecordId, setOpenRecordId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  // Acción en curso sobre una lista: { id, action: "reopen" | "delete" }
+  const [working, setWorking] = useState(null);
 
   // Se lee una sola vez cada vez que se abre la pestaña (sin listeners)
   useFocusEffect(
@@ -91,8 +98,90 @@ export default function HistoryScreen() {
     );
   };
 
+  const runReopen = async (record) => {
+    setWorking({ id: record.id, action: "reopen" });
+    try {
+      await restoreCount(user.uid, {
+        startedAt: record.startedAt,
+        items: (record.items || []).map((entry) => ({
+          productNumber: entry.c,
+          quantity: entry.q,
+        })),
+      });
+
+      // La lista vuelve a ser la actual: se quita del historial
+      await removeListRecord(user.uid, record.id);
+      setRecords((prev) => prev.filter((r) => r.id !== record.id));
+      setOpenRecordId(null);
+
+      Alert.alert(
+        "✅ Lista reabierta",
+        "Ya está en la pestaña Lista. Cuando la finalices de nuevo, vuelve al historial.",
+        [
+          { text: "Ver lista", onPress: () => router.navigate("/list") },
+          { text: "OK", style: "cancel" },
+        ],
+      );
+    } catch (err) {
+      if (err?.code === "list-not-empty") {
+        Alert.alert(
+          "Ya tenés una lista en curso",
+          "Finalizala o eliminala desde la pestaña Lista antes de reabrir otra.",
+        );
+      } else {
+        console.error("Error al reabrir la lista:", err);
+        Alert.alert("Error", "No se pudo reabrir la lista.");
+      }
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  const handleReopen = (record) => {
+    Alert.alert(
+      "Reabrir lista",
+      "Esta lista pasará a ser tu lista actual, con sus cantidades, y se quitará del historial hasta que la vuelvas a finalizar.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Reabrir", onPress: () => runReopen(record) },
+      ],
+    );
+  };
+
+  const runDeleteRecord = async (record) => {
+    setWorking({ id: record.id, action: "delete" });
+    try {
+      await removeListRecord(user.uid, record.id);
+      setRecords((prev) => prev.filter((r) => r.id !== record.id));
+      setOpenRecordId(null);
+    } catch (err) {
+      console.error("Error al eliminar la lista del historial:", err);
+      Alert.alert("Error", "No se pudo eliminar la lista del historial.");
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  const handleDeleteRecord = (record) => {
+    Alert.alert(
+      "Eliminar lista del historial",
+      `Se eliminará la lista del ${formatDay(record.closedAt)} (${record.totalUnits} unidades de ${record.totalProducts} productos). Las demás listas, tu lista actual y los productos registrados no se tocan. Esta acción no se puede deshacer.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: () => runDeleteRecord(record),
+        },
+      ],
+    );
+  };
+
   const renderRecord = ({ item }) => {
     const isOpen = openRecordId === item.id;
+    const reopening = working?.id === item.id && working.action === "reopen";
+    const removing = working?.id === item.id && working.action === "delete";
+    const anyWorking = working !== null;
 
     return (
       <View style={styles.record}>
@@ -141,6 +230,52 @@ export default function HistoryScreen() {
                 <Text style={styles.entryQuantity}>{entry.q}</Text>
               </View>
             ))}
+
+            <View style={styles.actions}>
+              <Pressable
+                style={[
+                  styles.reopenButton,
+                  anyWorking && styles.buttonDisabled,
+                ]}
+                onPress={() => handleReopen(item)}
+                disabled={anyWorking}
+              >
+                {reopening ? (
+                  <ActivityIndicator color={COLORS.primary} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="lock-open-outline"
+                      size={18}
+                      color={COLORS.primary}
+                    />
+                    <Text style={styles.reopenButtonText}>Reabrir lista</Text>
+                  </>
+                )}
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.deleteRecordButton,
+                  anyWorking && styles.buttonDisabled,
+                ]}
+                onPress={() => handleDeleteRecord(item)}
+                disabled={anyWorking}
+              >
+                {removing ? (
+                  <ActivityIndicator color="#B42318" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color="#B42318"
+                    />
+                    <Text style={styles.deleteRecordButtonText}>Eliminar</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
           </View>
         )}
       </View>
@@ -169,12 +304,15 @@ export default function HistoryScreen() {
 
       {expanded && records.length > 0 && (
         <Pressable
-          style={[styles.clearButton, deleting && styles.buttonDisabled]}
+          style={[
+            styles.clearButton,
+            (deleting || working !== null) && styles.buttonDisabled,
+          ]}
           onPress={handleClear}
-          disabled={deleting}
+          disabled={deleting || working !== null}
         >
           <Ionicons name="trash-outline" size={18} color="#B42318" />
-          <Text style={styles.clearButtonText}>Borrar historial</Text>
+          <Text style={styles.clearButtonText}>Borrar todo el historial</Text>
         </Pressable>
       )}
     </View>
@@ -356,5 +494,43 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
     color: COLORS.text,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  reopenButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: 12,
+    borderRadius: RADIUS.md,
+  },
+  reopenButtonText: {
+    color: COLORS.primary,
+    fontWeight: "700",
+    fontSize: 15,
+    marginLeft: 8,
+  },
+  deleteRecordButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#FDA29B",
+    paddingVertical: 12,
+    borderRadius: RADIUS.md,
+  },
+  deleteRecordButtonText: {
+    color: "#B42318",
+    fontWeight: "700",
+    fontSize: 15,
+    marginLeft: 8,
   },
 });

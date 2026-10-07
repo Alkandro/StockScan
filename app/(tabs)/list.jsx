@@ -21,11 +21,8 @@ import { useAuth } from "../../context/AuthContext";
 import {
   decrementCountItem,
   deleteCount,
-  finalizeCount,
   removeCountItem,
-  reopenCount,
   subscribeToCount,
-  subscribeToCountMeta,
 } from "../../services/countService";
 import { getProductById, isAdminUser } from "../../services/productService";
 import { saveListRecord } from "../../services/historyService";
@@ -57,7 +54,6 @@ function sortItems(list, names) {
 export default function ListScreen() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
-  const [meta, setMeta] = useState({ status: "open", recordId: null });
   const [names, setNames] = useState({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -66,6 +62,9 @@ export default function ListScreen() {
 
   const namesRef = useRef({});
   const itemsRef = useRef([]);
+  // Si falla el borrado después de guardar en el historial, al reintentar
+  // se reemplaza la misma copia en vez de duplicarla
+  const recordIdRef = useRef(null);
 
   // Trae la descripción de cada producto (una lectura por producto, con caché)
   const loadNames = useCallback(async (list, force = false) => {
@@ -95,7 +94,7 @@ export default function ListScreen() {
   useEffect(() => {
     let active = true;
 
-    isAdminUser(user?.uid).then((value) => {
+    isAdminUser().then((value) => {
       if (active) setIsAdmin(value);
     });
 
@@ -107,7 +106,7 @@ export default function ListScreen() {
   useEffect(() => {
     if (!user?.uid) return undefined;
 
-    const unsubscribeItems = subscribeToCount(
+    const unsubscribe = subscribeToCount(
       user.uid,
       (data) => {
         itemsRef.current = data;
@@ -123,14 +122,7 @@ export default function ListScreen() {
       },
     );
 
-    const unsubscribeMeta = subscribeToCountMeta(user.uid, setMeta, (err) =>
-      console.warn("Error al leer el estado de la lista:", err),
-    );
-
-    return () => {
-      unsubscribeItems();
-      unsubscribeMeta();
-    };
+    return unsubscribe;
   }, [user?.uid, loadNames]);
 
   // Al volver de la ficha o de otra pestaña, refresca las descripciones
@@ -157,9 +149,6 @@ export default function ListScreen() {
     return times.length ? Math.min(...times) : null;
   }, [items]);
 
-  const finalized = meta.status === "finalized";
-  const locked = finalized || busy;
-
   const runAction = async (action, errorMessage) => {
     setBusy(true);
     try {
@@ -173,8 +162,11 @@ export default function ListScreen() {
   };
 
   // Guarda una copia de la lista en el historial
-  const archiveList = async (recordId) => {
+  const archiveList = async () => {
     await loadNames(itemsRef.current);
+
+    const recordId = recordIdRef.current || String(Date.now());
+    recordIdRef.current = recordId;
 
     const list = sortItems(itemsRef.current, namesRef.current);
     const times = list
@@ -191,6 +183,17 @@ export default function ListScreen() {
         quantity: item.quantity,
       })),
     });
+  };
+
+  // Guarda en el historial y vacía la lista actual
+  const archiveAndClear = async () => {
+    if (itemsRef.current.length > 0) {
+      await archiveList();
+    }
+    await deleteCount(user.uid);
+    recordIdRef.current = null;
+    namesRef.current = {};
+    setNames({});
   };
 
   const handleDecrement = (item) =>
@@ -227,33 +230,27 @@ export default function ListScreen() {
 
     Alert.alert(
       "Finalizar lista",
-      `Vas a cerrar tu lista con ${totals.units} unidades de ${totals.products} productos. Se guarda en el historial y no podrás seguir escaneando hasta reabrirla.`,
+      `Se guardará tu lista (${totals.units} unidades de ${totals.products} productos) en el historial y quedará vacía para empezar una nueva. Desde el historial podés reabrirla.`,
       [
         { text: "Cancelar", style: "cancel" },
         {
           text: "Finalizar",
           onPress: () =>
             runAction(async () => {
-              const recordId = meta.recordId || String(Date.now());
-              await archiveList(recordId);
-              await finalizeCount(user.uid, { recordId, totals });
+              await archiveAndClear();
               Alert.alert(
                 "✅ Lista finalizada",
-                "Quedó guardada en tu historial. Cuando quieras empezar una nueva, eliminá esta lista.",
+                "Quedó guardada en tu historial. Ya podés empezar una nueva.",
               );
-            }, "No se pudo finalizar la lista."),
+            }, "No se pudo finalizar la lista. Si falló el guardado en el historial, la lista no se borró."),
         },
       ],
     );
   };
 
-  const handleReopen = () =>
-    runAction(() => reopenCount(user.uid), "No se pudo reabrir la lista.");
-
   const handleDeleteAll = () => {
-    const message = finalized
-      ? "Se borrará la lista de la base de datos. Ya está guardada en tu historial. Los productos registrados NO se eliminan."
-      : items.length > 0
+    const message =
+      items.length > 0
         ? "Se guardará una copia en tu historial y se borrará la lista de la base de datos. Los productos registrados NO se eliminan."
         : "Se borrará la lista. Los productos registrados NO se eliminan.";
 
@@ -263,15 +260,10 @@ export default function ListScreen() {
         text: "Eliminar",
         style: "destructive",
         onPress: () =>
-          runAction(async () => {
-            // Si falla el guardado en el historial, no se borra nada
-            if (!finalized && itemsRef.current.length > 0) {
-              await archiveList(meta.recordId || String(Date.now()));
-            }
-            await deleteCount(user.uid);
-            namesRef.current = {};
-            setNames({});
-          }, "No se pudo eliminar la lista. Si falló el guardado en el historial, la lista no se borró."),
+          runAction(
+            archiveAndClear,
+            "No se pudo eliminar la lista. Si falló el guardado en el historial, la lista no se borró.",
+          ),
       },
     ]);
   };
@@ -305,17 +297,17 @@ export default function ListScreen() {
         <Text style={styles.quantity}>{item.quantity}</Text>
 
         <Pressable
-          style={[styles.iconButton, locked && styles.iconButtonDisabled]}
+          style={[styles.iconButton, busy && styles.iconButtonDisabled]}
           onPress={() => handleDecrement(item)}
-          disabled={locked}
+          disabled={busy}
         >
           <Ionicons name="remove" size={20} color={COLORS.primary} />
         </Pressable>
 
         <Pressable
-          style={[styles.deleteButton, locked && styles.iconButtonDisabled]}
+          style={[styles.deleteButton, busy && styles.iconButtonDisabled]}
           onPress={() => handleRemove(item)}
-          disabled={locked}
+          disabled={busy}
         >
           <Ionicons name="trash-outline" size={20} color="#B42318" />
         </Pressable>
@@ -325,25 +317,14 @@ export default function ListScreen() {
 
   const footer = (
     <View style={styles.footer}>
-      {finalized ? (
-        <Pressable
-          style={[styles.outlineButton, busy && styles.buttonDisabled]}
-          onPress={handleReopen}
-          disabled={busy}
-        >
-          <Ionicons name="lock-open-outline" size={20} color={COLORS.primary} />
-          <Text style={styles.outlineButtonText}>Reabrir lista</Text>
-        </Pressable>
-      ) : (
-        <Pressable
-          style={[styles.primaryButton, busy && styles.buttonDisabled]}
-          onPress={handleFinalize}
-          disabled={busy}
-        >
-          <Ionicons name="checkmark-circle-outline" size={20} color="#FFF" />
-          <Text style={styles.primaryButtonText}>Finalizado</Text>
-        </Pressable>
-      )}
+      <Pressable
+        style={[styles.primaryButton, busy && styles.buttonDisabled]}
+        onPress={handleFinalize}
+        disabled={busy}
+      >
+        <Ionicons name="checkmark-circle-outline" size={20} color="#FFF" />
+        <Text style={styles.primaryButtonText}>Finalizado</Text>
+      </Pressable>
 
       <Pressable
         style={[styles.dangerButton, busy && styles.buttonDisabled]}
@@ -367,11 +348,6 @@ export default function ListScreen() {
             </Text>
           )}
         </View>
-        {finalized && (
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>FINALIZADA</Text>
-          </View>
-        )}
       </View>
 
       <View style={styles.summary}>
@@ -454,17 +430,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#667085",
     marginTop: 2,
-  },
-  chip: {
-    backgroundColor: "#DCFAE6",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  chipText: {
-    color: "#067647",
-    fontSize: 11,
-    fontWeight: "800",
   },
   summary: {
     flexDirection: "row",
@@ -569,21 +534,6 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: "#FFF",
-    fontWeight: "700",
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  outlineButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: RADIUS.md,
-  },
-  outlineButtonText: {
-    color: COLORS.primary,
     fontWeight: "700",
     fontSize: 16,
     marginLeft: 8,

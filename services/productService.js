@@ -12,26 +12,12 @@ import {
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "../lib/firebase";
-import { countItemRef, countRef } from "./countService";
+import { countItemRef, productIdFromQr } from "./countService";
 
 const PRODUCTS = "products";
 
 // Debe coincidir con el email de la función isAdmin() en las reglas de Firestore
 export const ADMIN_EMAIL = "ale@a.com";
-
-function productIdFromQr(qrData) {
-  return encodeURIComponent(qrData.trim()).replace(/%/g, "_").slice(0, 140);
-}
-
-function assertListOpen(listSnap) {
-  if (listSnap.exists() && listSnap.data().status === "finalized") {
-    const err = new Error(
-      "Tu lista está finalizada. Reabrila desde la pestaña Lista para seguir escaneando.",
-    );
-    err.code = "list-finalized";
-    throw err;
-  }
-}
 
 /** Suma 1 al renglón de la lista (lo crea si no existe). Devuelve la cantidad. */
 function addToCount(
@@ -91,7 +77,6 @@ export async function getProductsCount() {
  * - Producto registrado: suma 1 a la lista y devuelve state "registered".
  * - Producto inexistente o en borrador viejo: NO escribe nada ni suma;
  *   devuelve state "unregistered" para que la app pida la descripción.
- * Si la lista está finalizada, lanza el error "list-finalized".
  * Los productos viejos sin campo `status` se consideran registrados.
  */
 export async function scanProduct(qrData, userId) {
@@ -102,23 +87,20 @@ export async function scanProduct(qrData, userId) {
   const productId = productIdFromQr(cleanQr);
   const productRef = doc(db, PRODUCTS, productId);
   const itemRef = countItemRef(userId, productId);
-  const listRef = countRef(userId);
 
   const result = await runTransaction(db, async (transaction) => {
     // Primero todas las lecturas, después las escrituras
     const productSnap = await transaction.get(productRef);
-    const itemSnap = await transaction.get(itemRef);
-    const listSnap = await transaction.get(listRef);
-
-    assertListOpen(listSnap);
-
     const status = productSnap.exists()
       ? productSnap.data().status || "registered"
       : null;
 
+    // No registrado: no se escribe nada ni se cuenta
     if (!productSnap.exists() || status === "draft") {
       return { state: "unregistered", product: null, countQuantity: null };
     }
+
+    const itemSnap = await transaction.get(itemRef);
 
     const countQuantity = addToCount(
       transaction,
@@ -140,10 +122,10 @@ export async function scanProduct(qrData, userId) {
 }
 
 /**
- * Registra un producto nuevo con su descripción y lo suma a la lista (+1),
- * todo en una sola transacción: o se hacen las dos cosas o ninguna.
+ * Registra un producto nuevo con su descripción. NO lo suma a ninguna lista:
+ * el conteo se hace escaneando el producto ya registrado.
  * También completa borradores viejos. Si otro usuario lo registró mientras
- * tanto, no lo pisa: solo lo suma a la lista.
+ * tanto, no lo pisa.
  */
 export async function registerProduct(qrData, description, userId) {
   const cleanQr = (qrData || "").trim();
@@ -161,19 +143,10 @@ export async function registerProduct(qrData, description, userId) {
 
   const productId = productIdFromQr(cleanQr);
   const productRef = doc(db, PRODUCTS, productId);
-  const itemRef = countItemRef(userId, productId);
-  const listRef = countRef(userId);
 
   return runTransaction(db, async (transaction) => {
     const productSnap = await transaction.get(productRef);
-    const itemSnap = await transaction.get(itemRef);
-    const listSnap = await transaction.get(listRef);
-
-    assertListOpen(listSnap);
-
     const now = new Date();
-    let alreadyRegistered = false;
-    let finalName = name;
 
     if (!productSnap.exists()) {
       transaction.set(productRef, {
@@ -186,7 +159,10 @@ export async function registerProduct(qrData, description, userId) {
         registeredAt: now,
         registeredBy: userId,
       });
-    } else if ((productSnap.data().status || "registered") === "draft") {
+      return { id: productId, name, alreadyRegistered: false };
+    }
+
+    if ((productSnap.data().status || "registered") === "draft") {
       transaction.update(productRef, {
         name,
         status: "registered",
@@ -195,21 +171,14 @@ export async function registerProduct(qrData, description, userId) {
         registeredAt: now,
         registeredBy: userId,
       });
-    } else {
-      alreadyRegistered = true;
-      finalName = productSnap.data().name || name;
+      return { id: productId, name, alreadyRegistered: false };
     }
 
-    const countQuantity = addToCount(
-      transaction,
-      itemSnap,
-      itemRef,
-      cleanQr,
-      userId,
-      now,
-    );
-
-    return { id: productId, name: finalName, alreadyRegistered, countQuantity };
+    return {
+      id: productId,
+      name: productSnap.data().name || name,
+      alreadyRegistered: true,
+    };
   });
 }
 
