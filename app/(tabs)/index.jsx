@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -19,10 +19,14 @@ import {
   getProductsCount,
   isAdminUser,
 } from "../../services/productService";
+import { EMPTY, LOCAL_KEYS, subscribeLocal } from "../../services/localStore";
+import { syncNow } from "../../services/syncService";
+import SyncStatusCard from "../../components/SyncStatusCard";
+import FloatingLanguageSelector from "../../components/FloatingLanguageSelector";
 import { useTranslation } from "react-i18next";
 
 export default function HomeScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
   const insets = useSafeAreaInsets();
 
@@ -33,7 +37,6 @@ export default function HomeScreen() {
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
 
   const uid = user?.uid;
 
@@ -42,30 +45,6 @@ export default function HomeScreen() {
 
   const displayName =
     rawName.charAt(0).toUpperCase() + rawName.slice(1);
-
-  const languages = [
-    {
-      code: "es",
-      flag: "🇦🇷",
-    },
-    {
-      code: "pt",
-      flag: "🇧🇷",
-    },
-    {
-      code: "ja",
-      flag: "🇯🇵",
-    },
-    {
-      code: "en",
-      flag: "🇺🇸",
-    },
-  ];
-
-  const changeLanguage = (language) => {
-    i18n.changeLanguage(language);
-    setLanguageOpen(false);
-  };
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -108,8 +87,34 @@ export default function HomeScreen() {
     }, [load]),
   );
 
+  // Cuando cambia el catálogo del celular (por una sincronización o un
+  // registro nuevo), la lista y el contador se actualizan solos
+  useEffect(
+    () =>
+      subscribeLocal(
+        LOCAL_KEYS.catalog,
+        EMPTY.catalog,
+        (catalog) => {
+          const list = Object.values(catalog.products).sort(
+            (a, b) =>
+              (b.updatedAtMs || 0) - (a.updatedAtMs || 0),
+          );
+
+          setProducts(list);
+          setProductsCount(list.length);
+          setCountFailed(false);
+        },
+      ),
+    [],
+  );
+
   async function refresh() {
     setRefreshing(true);
+
+    if (uid) {
+      await syncNow(uid);
+    }
+
     await load();
     setRefreshing(false);
   }
@@ -282,6 +287,8 @@ export default function HomeScreen() {
           icon="cube-outline"
         />
 
+        <SyncStatusCard />
+
         <Text style={styles.sectionTitle}>
           {t("home.productsSection")}
         </Text>
@@ -383,84 +390,8 @@ export default function HomeScreen() {
         }
       />
 
-      {/* SELECTOR DE IDIOMA FLOTANTE */}
-      {languageOpen && (
-        <View
-          style={[
-            styles.languageMenu,
-            {
-              bottom: insets.bottom + 74,
-            },
-          ]}
-        >
-          {languages.map((language) => {
-            const isActive =
-              i18n.language
-                ?.toLowerCase()
-                .startsWith(language.code);
-
-            return (
-              <Pressable
-                key={language.code}
-                onPress={() =>
-                  changeLanguage(
-                    language.code,
-                  )
-                }
-                style={[
-                  styles.languageOption,
-                  isActive &&
-                    styles.languageOptionActive,
-                ]}
-              >
-                <Text style={styles.languageFlag}>
-                  {language.flag}
-                </Text>
-
-                {isActive && (
-                  <Ionicons
-                    name="checkmark"
-                    size={16}
-                    color={COLORS.primary}
-                    style={styles.checkIcon}
-                  />
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-
-      {/* Botón flotante */}
-      <Pressable
-        onPress={() =>
-          setLanguageOpen(
-            (previous) => !previous,
-          )
-        }
-        style={[
-          styles.languageFloatingButton,
-          {
-            bottom: insets.bottom + 16,
-          },
-        ]}
-      >
-        {languageOpen ? (
-          <Ionicons
-            name="close"
-            size={24}
-            color={COLORS.primary}
-          />
-        ) : (
-          <Text style={styles.currentLanguageFlag}>
-            {languages.find((language) =>
-              i18n.language
-                ?.toLowerCase()
-                .startsWith(language.code),
-            )?.flag || "🌐"}
-          </Text>
-        )}
-      </Pressable>
+      {/* Selector de idioma flotante: se mueve con el dedo */}
+      <FloatingLanguageSelector />
     </View>
   );
 }
@@ -604,7 +535,7 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "800",
     color: COLORS.text,
     marginTop: 12,
@@ -690,72 +621,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: COLORS.muted,
     marginTop: 20,
-  },
-
-  // SELECTOR DE IDIOMA
-  languageFloatingButton: {
-    position: "absolute",
-    right: 18,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#FFF",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.22,
-    shadowRadius: 5,
-  },
-
-  currentLanguageFlag: {
-    fontSize: 28,
-    lineHeight: 34,
-  },
-
-  languageMenu: {
-    position: "absolute",
-    right: 18,
-    backgroundColor: "#FFF",
-    borderRadius: 16,
-    padding: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignSelf: "flex-end", // Permite que el contenedor se ajuste solo a su contenido
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-  },
-
-  languageOption: {
-    height: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-    borderRadius: 10,
-  },
-
-  languageOptionActive: {
-    backgroundColor: "#EAF3FF",
-  },
-
-  languageFlag: {
-    fontSize: 24,
-  },
-
-  checkIcon: {
-    marginLeft: 6,
   },
 });

@@ -11,6 +11,19 @@ export default {
     error: "エラー",
     ok: "OK",
   },
+  sync: {
+    button: "同期",
+    offline: "オフライン",
+    syncing: "同期中...",
+    pending: "未送信 {{count}} 件",
+    synced: "同期済み",
+    error: "同期できませんでした",
+    noCatalog: "カタログなし",
+    products: "{{count}} 件の商品をダウンロード済み",
+    lastSync: "最終同期: {{time}}",
+    neverSynced:
+      "カタログがまだダウンロードされていません。倉庫に入る前にインターネットに接続してください。",
+  },
 
   history: {
     screenTitle: "履歴",
@@ -496,6 +509,8 @@ export default {
 
       adminPermissionDenied:
         "アクセスが拒否されました。商品を変更するには管理者権限が必要です。",
+
+      offline: "商品を編集するには接続が必要です。",
 
       saveConsole: "商品の保存エラー:",
 

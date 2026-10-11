@@ -3,12 +3,22 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 export const LOCAL_KEYS = {
   catalog: "stockscan:catalog:v1",
   list: (userId) => `stockscan:list:${userId}:v1`,
+  history: (userId) => `stockscan:history:${userId}:v1`,
 };
 
 // Valores iniciales de cada documento local
 export const EMPTY = {
   catalog: () => ({ products: {}, lastSyncMs: null }),
   list: () => ({ items: {} }),
+  history: () => ({
+    records: [],
+    deletedIds: [],
+    cleared: false,
+    dirty: false,
+    loaded: false,
+    rev: 0,
+    lastSyncMs: null,
+  }),
 };
 
 const cache = new Map(); // key -> valor en memoria

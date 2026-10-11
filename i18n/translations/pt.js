@@ -11,6 +11,19 @@ export default {
     error: "Erro",
     ok: "OK",
   },
+  sync: {
+    button: "Sincronizar",
+    offline: "Sem conexão",
+    syncing: "Sincronizando...",
+    pending: "{{count}} pendente(s) de envio",
+    synced: "Sincronizado",
+    error: "Não foi possível sincronizar",
+    noCatalog: "Sem catálogo",
+    products: "{{count}} produtos baixados",
+    lastSync: "Última sincronização: {{time}}",
+    neverSynced:
+      "Você ainda não baixou o catálogo. Conecte-se à internet antes de entrar no galpão.",
+  },
 
   history: {
     screenTitle: "Histórico",
@@ -496,7 +509,7 @@ export default {
 
       adminPermissionDenied:
         "Acesso negado. É necessário ter permissões de Administrador para modificar o produto.",
-
+      offline: "É necessária conexão para modificar produtos.",
       saveConsole: "Erro ao salvar o produto:",
 
       loadConsole: "Erro ao obter produtos:",

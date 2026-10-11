@@ -1,114 +1,124 @@
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  limit,
-  onSnapshot,
-  query,
-  runTransaction,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
 import i18n from "i18next";
+import { EMPTY, LOCAL_KEYS, subscribeLocal, updateLocal } from "./localStore";
 
-const COUNTS = "counts";
-const BATCH_SIZE = 400;
+const MAX_QUANTITY = 100000;
+
+// La sincronización se registra acá para subir la lista unos segundos después
+let changeHandler = null;
+
+export function setListChangeHandler(handler) {
+  changeHandler = handler;
+}
 
 /** ID del documento de un producto a partir del código leído. */
 export function productIdFromQr(qrData) {
   return encodeURIComponent(qrData.trim()).replace(/%/g, "_").slice(0, 140);
 }
 
-// La lista de cada usuario es un único documento: counts/{uid}
-export function countRef(userId) {
-  return doc(db, COUNTS, userId);
+function listKey(userId) {
+  return LOCAL_KEYS.list(userId);
 }
 
-export function countItemRef(userId, productId) {
-  return doc(db, COUNTS, userId, "items", productId);
+// Marca la lista como modificada: queda pendiente de subir a Firebase
+function markDirty(draft) {
+  draft.dirty = true;
+  draft.rev = (draft.rev || 0) + 1;
 }
 
-/** Escucha en tiempo real los renglones de la lista. */
+async function mutate(userId, mutator) {
+  const result = await updateLocal(listKey(userId), EMPTY.list, mutator);
+  changeHandler?.();
+  return result;
+}
+
+/** Escucha los renglones de la lista (guardada en el celular). */
 export function subscribeToCount(userId, onData, onError) {
-  const itemsRef = collection(db, COUNTS, userId, "items");
-
-  return onSnapshot(
-    itemsRef,
-    (snapshot) => {
+  try {
+    return subscribeLocal(listKey(userId), EMPTY.list, (list) => {
       onData(
-        snapshot.docs.map((item) => {
-          const data = item.data();
-
-          return {
-            id: item.id,
-            ...data,
-            createdAtMs:
-              typeof data.createdAt?.toMillis === "function"
-                ? data.createdAt.toMillis()
-                : null,
-          };
-        }),
+        Object.entries(list.items || {}).map(([id, item]) => ({
+          id,
+          ...item,
+          createdAtMs: item.createdAtMs ?? null,
+        })),
       );
-    },
-    onError,
-  );
+    });
+  } catch (error) {
+    onError?.(error);
+    return () => {};
+  }
+}
+
+/** Suma 1 al renglón de la lista (lo crea si no existe). Devuelve la cantidad. */
+export function addToLocalCount(userId, productId, productNumber) {
+  return mutate(userId, (draft) => {
+    const now = Date.now();
+    const item = draft.items[productId];
+
+    markDirty(draft);
+
+    if (item) {
+      item.quantity = Math.min(Number(item.quantity || 0) + 1, MAX_QUANTITY);
+      item.updatedAtMs = now;
+      return item.quantity;
+    }
+
+    draft.items[productId] = {
+      productNumber,
+      quantity: 1,
+      createdAtMs: now,
+      updatedAtMs: now,
+    };
+
+    return 1;
+  });
 }
 
 /** Resta 1. Si llega a 0, elimina el renglón. */
-export async function decrementCountItem(userId, productId) {
-  const ref = countItemRef(userId, productId);
+export function decrementCountItem(userId, productId) {
+  return mutate(userId, (draft) => {
+    const item = draft.items[productId];
+    if (!item) return null;
 
-  return runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(ref);
+    markDirty(draft);
 
-    if (!snap.exists()) return null;
-
-    const next = Number(snap.data().quantity || 0) - 1;
+    const next = Number(item.quantity || 0) - 1;
 
     if (next <= 0) {
-      transaction.delete(ref);
+      delete draft.items[productId];
       return 0;
     }
 
-    transaction.update(ref, {
-      quantity: next,
-      updatedAt: new Date(),
-    });
-
+    item.quantity = next;
+    item.updatedAtMs = Date.now();
     return next;
   });
 }
 
-/** Borra un renglón de la lista
- * (nunca toca el catálogo de productos).
- */
+/** Borra un renglón de la lista (nunca toca el catálogo de productos). */
 export async function removeCountItem(userId, productId) {
-  await deleteDoc(countItemRef(userId, productId));
+  await mutate(userId, (draft) => {
+    if (draft.items[productId]) {
+      delete draft.items[productId];
+      markDirty(draft);
+    }
+  });
 }
 
 /**
- * Elimina de Firebase la lista
- * (renglones + documento de estado, si existe).
- * No toca la colección "products" ni el historial.
+ * Vacía la lista.
+ * No toca el catálogo de productos ni el historial.
+ * En Firebase se vacía en la próxima sincronización.
  */
-export async function deleteCount(userId) {
-  const itemsRef = collection(db, COUNTS, userId, "items");
+export function deleteCount(userId) {
+  return mutate(userId, (draft) => {
+    const count = Object.keys(draft.items).length;
 
-  const snapshot = await getDocs(itemsRef);
-  const refs = snapshot.docs.map((item) => item.ref);
+    draft.items = {};
+    markDirty(draft);
 
-  for (let i = 0; i < refs.length; i += BATCH_SIZE) {
-    const batch = writeBatch(db);
-
-    refs.slice(i, i + BATCH_SIZE).forEach((ref) => batch.delete(ref));
-
-    await batch.commit();
-  }
-
-  await deleteDoc(countRef(userId));
-
-  return refs.length;
+    return count;
+  });
 }
 
 /**
@@ -117,55 +127,35 @@ export async function deleteCount(userId) {
  * si ya hay renglones, lanza "list-not-empty".
  * items: [{ productNumber, quantity }]
  */
-export async function restoreCount(userId, { items, startedAt }) {
-  const itemsRef = collection(db, COUNTS, userId, "items");
+export function restoreCount(userId, { items, startedAt }) {
+  return mutate(userId, (draft) => {
+    if (Object.keys(draft.items).length > 0) {
+      const err = new Error(i18n.t("countService.errors.listNotEmpty"));
+      err.code = "list-not-empty";
+      throw err;
+    }
 
-  const existing = await getDocs(query(itemsRef, limit(1)));
+    const now = Date.now();
+    const createdAtMs = startedAt || now;
 
-  if (!existing.empty) {
-    const err = new Error(i18n.t("countService.errors.listNotEmpty"));
+    const valid = items.filter(
+      (item) =>
+        item.productNumber &&
+        Number.isInteger(item.quantity) &&
+        item.quantity >= 1,
+    );
 
-    err.code = "list-not-empty";
-    throw err;
-  }
-
-  const now = new Date();
-
-  const createdAt = startedAt ? new Date(startedAt) : now;
-
-  const valid = items.filter(
-    (item) =>
-      item.productNumber &&
-      Number.isInteger(item.quantity) &&
-      item.quantity >= 1,
-  );
-
-  for (let i = 0; i < valid.length; i += BATCH_SIZE) {
-    const batch = writeBatch(db);
-
-    valid.slice(i, i + BATCH_SIZE).forEach((item) => {
-      batch.set(countItemRef(userId, productIdFromQr(item.productNumber)), {
+    valid.forEach((item) => {
+      draft.items[productIdFromQr(item.productNumber)] = {
         productNumber: item.productNumber,
-        quantity: item.quantity,
-        countedBy: userId,
-        createdAt,
-        updatedAt: now,
-      });
+        quantity: Math.min(item.quantity, MAX_QUANTITY),
+        createdAtMs,
+        updatedAtMs: now,
+      };
     });
 
-    await batch.commit();
-  }
+    markDirty(draft);
 
-  // Limpia un estado "finalizada" viejo,
-  // si había quedado
-  try {
-    await deleteDoc(countRef(userId));
-  } catch (error) {
-    console.warn(
-      i18n.t("countService.errors.clearPreviousStateConsole"),
-      error,
-    );
-  }
-
-  return valid.length;
+    return valid.length;
+  });
 }

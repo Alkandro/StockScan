@@ -11,7 +11,19 @@ export default {
     error: "Error",
     ok: "OK",
   },
-
+  sync: {
+    button: "Sync",
+    offline: "Offline",
+    syncing: "Syncing...",
+    pending: "{{count}} not uploaded",
+    synced: "Synced",
+    error: "Sync failed",
+    noCatalog: "No catalog",
+    products: "{{count}} products downloaded",
+    lastSync: "Last sync: {{time}}",
+    neverSynced:
+      "You haven't downloaded the catalog yet. Connect to the internet before entering the warehouse.",
+  },
   history: {
     screenTitle: "History",
     title: "List History",
@@ -490,7 +502,7 @@ export default {
 
       adminPermissionDenied:
         "Access denied. Administrator permissions are required to modify the product.",
-
+      offline: "You need a connection to edit products.",
       saveConsole: "Error saving the product:",
 
       loadConsole: "Error retrieving products:",

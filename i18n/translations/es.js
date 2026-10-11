@@ -12,6 +12,21 @@ export default {
     ok: "OK",
   },
 
+  // Tarjeta de sincronización del Inicio
+  sync: {
+    button: "Sincronizar",
+    offline: "Sin conexión",
+    syncing: "Sincronizando...",
+    pending: "{{count}} sin subir",
+    synced: "Sincronizado",
+    error: "No se pudo sincronizar",
+    noCatalog: "Sin catálogo",
+    products: "{{count}} productos descargados",
+    lastSync: "Última sincronización: {{time}}",
+    neverSynced:
+      "Todavía no descargaste el catálogo. Conectate a internet antes de entrar al galpón.",
+  },
+
   history: {
     screenTitle: "Historial",
     title: "Historial de listas",
@@ -482,6 +497,8 @@ export default {
 
       adminPermissionDenied:
         "Acceso denegado. Se requieren permisos de Administrador para modificar el producto.",
+
+      offline: "Necesitás conexión para modificar productos.",
 
       saveConsole: "Error al guardar el producto:",
 
