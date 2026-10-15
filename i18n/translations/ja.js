@@ -25,6 +25,45 @@ export default {
       "カタログがまだダウンロードされていません。倉庫に入る前にインターネットに接続してください。",
   },
 
+  pallets: {
+    label: "パレット {{n}}",
+    short: "P{{n}}",
+    ofTotal: "パレット {{current}} / {{total}}",
+    start: "開始",
+    startSubtitle: "パレットの数を入力してください",
+    continue: "続ける",
+    continueSubtitle: "パレット {{current}} / {{total}}",
+    modalTitle: "パレットはいくつありますか？",
+    modalMessage:
+      "パレットごとにスキャンします。1つ終わったら「次のパレット」をタップしてください。",
+    modalLabel: "パレット数",
+    modalConfirm: "開始",
+    modalInvalid: "1〜{{max}} の数字を入力してください。",
+    listInProgressTitle: "進行中のリストがあります",
+    listInProgressMessage:
+      "新しく始める前に、リストタブで完了または削除してください。",
+    hudTotal: "リスト合計",
+    hudPallet: "このパレット: {{count}}",
+    next: "次のパレット",
+    finish: "リストを完了",
+    emptyPalletTitle: "読み取りのないパレット",
+    emptyPalletMessage:
+      "このパレットには読み取りがありません。それでも次に進みますか？",
+    emptyPalletConfirm: "このまま進む",
+    noSessionTitle: "まだ開始していません",
+    noSession: "ホーム画面で「開始」をタップし、パレット数を入力してください。",
+    back: "戻る",
+    multiBanner: "⚠ 合計 {{total}} · {{detail}}",
+    multiHint: "⚠ {{detail}}",
+    duplicateTitle: "重複した商品",
+    duplicateDescription:
+      "同じ説明の商品がすでに存在します（コード {{code}}）。同じ商品を二重に登録することはできません。",
+    checkedProgress: "入力済み {{done}} / {{total}}",
+    checkError: "チェックできませんでした。",
+    checkConsole: "チェックのエラー:",
+    recordPallets: "{{count}} パレット",
+  },
+
   history: {
     screenTitle: "履歴",
     title: "リスト履歴",

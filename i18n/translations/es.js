@@ -26,6 +26,45 @@ export default {
     neverSynced:
       "Todavía no descargaste el catálogo. Conectate a internet antes de entrar al galpón.",
   },
+  pallets: {
+    label: "Palet {{n}}",
+    short: "P{{n}}",
+    ofTotal: "Palet {{current}} de {{total}}",
+    start: "Comenzar",
+    startSubtitle: "Indicá cuántos palets son",
+    continue: "Continuar",
+    continueSubtitle: "Palet {{current}} de {{total}}",
+    modalTitle: "¿Cuántos palets son?",
+    modalMessage:
+      "Vas a escanear palet por palet. Al terminar cada uno, tocá “Siguiente palet”.",
+    modalLabel: "Cantidad de palets",
+    modalConfirm: "Comenzar",
+    modalInvalid: "Ingresá un número entre 1 y {{max}}.",
+    listInProgressTitle: "Ya tenés una lista en curso",
+    listInProgressMessage:
+      "Finalizala o eliminala desde la pestaña Lista antes de comenzar otra.",
+    hudTotal: "en la lista",
+    hudPallet: "En este palet: {{count}}",
+    next: "Siguiente palet",
+    finish: "Finalizar lista",
+    emptyPalletTitle: "Palet sin lecturas",
+    emptyPalletMessage:
+      "Este palet no tiene ninguna lectura. ¿Querés pasar al siguiente igual?",
+    emptyPalletConfirm: "Pasar igual",
+    noSessionTitle: "Falta empezar",
+    noSession:
+      "Primero tocá “Comenzar” en el inicio e indicá cuántos palets son.",
+    back: "Volver",
+    multiBanner: "⚠ Total {{total}} · {{detail}}",
+    multiHint: "⚠ {{detail}}",
+    duplicateTitle: "Producto repetido",
+    duplicateDescription:
+      "Ya existe un producto con esa descripción (código {{code}}). No se puede registrar el mismo producto dos veces.",
+    checkedProgress: "Cargadas {{done}} de {{total}}",
+    checkError: "No se pudo marcar la pieza.",
+    checkConsole: "Error al marcar la pieza:",
+    recordPallets: "{{count}} palets",
+  },
 
   history: {
     screenTitle: "Historial",

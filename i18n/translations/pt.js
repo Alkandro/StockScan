@@ -24,6 +24,45 @@ export default {
     neverSynced:
       "Você ainda não baixou o catálogo. Conecte-se à internet antes de entrar no galpão.",
   },
+  pallets: {
+    label: "Palete {{n}}",
+    short: "P{{n}}",
+    ofTotal: "Palete {{current}} de {{total}}",
+    start: "Começar",
+    startSubtitle: "Informe quantos paletes são",
+    continue: "Continuar",
+    continueSubtitle: "Palete {{current}} de {{total}}",
+    modalTitle: "Quantos paletes são?",
+    modalMessage:
+      "Você vai escanear palete por palete. Ao terminar cada um, toque em “Próximo palete”.",
+    modalLabel: "Quantidade de paletes",
+    modalConfirm: "Começar",
+    modalInvalid: "Digite um número entre 1 e {{max}}.",
+    listInProgressTitle: "Você já tem uma lista em andamento",
+    listInProgressMessage:
+      "Finalize ou exclua a lista na aba Lista antes de começar outra.",
+    hudTotal: "na lista",
+    hudPallet: "Neste palete: {{count}}",
+    next: "Próximo palete",
+    finish: "Finalizar lista",
+    emptyPalletTitle: "Palete sem leituras",
+    emptyPalletMessage:
+      "Este palete não tem nenhuma leitura. Quer passar para o próximo mesmo assim?",
+    emptyPalletConfirm: "Passar mesmo assim",
+    noSessionTitle: "Falta começar",
+    noSession:
+      "Primeiro toque em “Começar” no início e informe quantos paletes são.",
+    back: "Voltar",
+    multiBanner: "⚠ Total {{total}} · {{detail}}",
+    multiHint: "⚠ {{detail}}",
+    duplicateTitle: "Produto repetido",
+    duplicateDescription:
+      "Já existe um produto com essa descrição (código {{code}}). Não é possível cadastrar o mesmo produto duas vezes.",
+    checkedProgress: "Carregadas {{done}} de {{total}}",
+    checkError: "Não foi possível marcar a peça.",
+    checkConsole: "Erro ao marcar a peça:",
+    recordPallets: "{{count}} paletes",
+  },
 
   history: {
     screenTitle: "Histórico",

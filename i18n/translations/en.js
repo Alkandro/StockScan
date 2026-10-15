@@ -24,6 +24,46 @@ export default {
     neverSynced:
       "You haven't downloaded the catalog yet. Connect to the internet before entering the warehouse.",
   },
+
+  pallets: {
+    label: "Pallet {{n}}",
+    short: "P{{n}}",
+    ofTotal: "Pallet {{current}} of {{total}}",
+    start: "Start",
+    startSubtitle: "Enter how many pallets there are",
+    continue: "Continue",
+    continueSubtitle: "Pallet {{current}} of {{total}}",
+    modalTitle: "How many pallets are there?",
+    modalMessage:
+      "You'll scan pallet by pallet. When you finish each one, tap “Next pallet”.",
+    modalLabel: "Number of pallets",
+    modalConfirm: "Start",
+    modalInvalid: "Enter a number between 1 and {{max}}.",
+    listInProgressTitle: "You already have a list in progress",
+    listInProgressMessage:
+      "Finish or delete it from the List tab before starting another.",
+    hudTotal: "in the list",
+    hudPallet: "On this pallet: {{count}}",
+    next: "Next pallet",
+    finish: "Finish list",
+    emptyPalletTitle: "Pallet with no scans",
+    emptyPalletMessage:
+      "This pallet has no scans. Do you want to move to the next one anyway?",
+    emptyPalletConfirm: "Move on anyway",
+    noSessionTitle: "Not started yet",
+    noSession:
+      "First tap “Start” on the home screen and enter how many pallets there are.",
+    back: "Back",
+    multiBanner: "⚠ Total {{total}} · {{detail}}",
+    multiHint: "⚠ {{detail}}",
+    duplicateTitle: "Duplicate product",
+    duplicateDescription:
+      "A product with that description already exists (code {{code}}). The same product can't be registered twice.",
+    checkedProgress: "Loaded {{done}} of {{total}}",
+    checkError: "Couldn't mark the item.",
+    checkConsole: "Error marking the item:",
+    recordPallets: "{{count}} pallets",
+  },
   history: {
     screenTitle: "History",
     title: "List History",
