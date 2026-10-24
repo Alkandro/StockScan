@@ -63,6 +63,12 @@ export default {
     checkError: "Couldn't mark the item.",
     checkConsole: "Error marking the item:",
     recordPallets: "{{count}} pallets",
+    detectedMessage:
+      "The product model was detected. Confirm to add it to the database. Registering it doesn't add it to your list: scan it again afterwards to count it.",
+    detectedModel: "Detected model",
+    notInDb: "Not in the database",
+    existsInDb: "Already in the database: {{name}}",
+    confirmRegister: "Confirm and register",
   },
   history: {
     screenTitle: "History",

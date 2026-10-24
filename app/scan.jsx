@@ -17,11 +17,19 @@
 // import { COLORS, RADIUS } from "../constants/theme";
 // import { useAuth } from "../context/AuthContext";
 // import { registerProduct, scanProduct } from "../services/productService";
+// import {
+//   formatPalletBreakdown,
+//   movePallet,
+//   palletEntries,
+// } from "../services/countService";
+// import { useListState } from "../services/useListState";
 // import { useTranslation } from "react-i18next";
 
 // // Tiempo de espera entre lecturas para no contar dos veces el mismo código
 // const COOLDOWN_MS = 1500;
 // const BANNER_MS = 2500;
+// // El aviso de "está en varios palets" dura más para que se alcance a leer
+// const WARN_BANNER_MS = 5000;
 
 // // Tras registrar o cancelar un producto nuevo, se ignora ese mismo código
 // // este tiempo, para que no se cuente sin querer mientras la cámara lo sigue viendo
@@ -32,6 +40,7 @@
 // export default function ScanScreen() {
 //   const { t } = useTranslation();
 //   const { user } = useAuth();
+//   const { session, totals, loaded } = useListState(user?.uid);
 //   const [permission, requestPermission] = useCameraPermissions();
 //   const [isFocused, setIsFocused] = useState(false);
 //   const [cameraReady, setCameraReady] = useState(false);
@@ -81,13 +90,10 @@
 //   }, [unlock]);
 
 //   const showBanner = useCallback(
-//     (title, subtitle, duration = BANNER_MS) => {
-//       setBanner({ title, subtitle });
+//     (title, subtitle, duration = BANNER_MS, tone = "ok") => {
+//       setBanner({ title, subtitle, tone });
 //       clearTimeout(bannerTimer.current);
-//       bannerTimer.current = setTimeout(
-//         () => setBanner(null),
-//         duration,
-//       );
+//       bannerTimer.current = setTimeout(() => setBanner(null), duration);
 //     },
 //     [],
 //   );
@@ -99,48 +105,40 @@
 //   if (!permission.granted) {
 //     return (
 //       <View style={styles.centerContainer}>
-//         <Ionicons
-//           name="camera-outline"
-//           size={60}
-//           color={COLORS.primary}
-//         />
+//         <Ionicons name="camera-outline" size={60} color={COLORS.primary} />
 
-//         <Text style={styles.permissionText}>
-//           {t("scan.permissionMessage")}
-//         </Text>
+//         <Text style={styles.permissionText}>{t("scan.permissionMessage")}</Text>
 
-//         <Pressable
-//           style={styles.button}
-//           onPress={requestPermission}
-//         >
-//           <Text style={styles.buttonText}>
-//             {t("scan.grantPermission")}
-//           </Text>
+//         <Pressable style={styles.button} onPress={requestPermission}>
+//           <Text style={styles.buttonText}>{t("scan.grantPermission")}</Text>
 //         </Pressable>
 //       </View>
 //     );
 //   }
 
-//   const goToList = () => router.navigate("/list");
+//   if (!loaded) {
+//     return <View style={styles.container} />;
+//   }
 
-//   const showFinalizedAlert = (message) => {
-//     Alert.alert(
-//       t("scan.alerts.finalizedTitle"),
-//       message,
-//       [
-//         {
-//           text: t("scan.alerts.viewList"),
-//           onPress: goToList,
-//         },
-//         {
-//           text: t("scan.alerts.close"),
-//           style: "cancel",
-//           onPress: unlock,
-//         },
-//       ],
-//       { cancelable: false },
+//   // Sin conteo por palets no se puede escanear: primero hay que tocar "Comenzar"
+//   if (!session) {
+//     return (
+//       <View style={styles.centerContainer}>
+//         <Ionicons name="layers-outline" size={60} color={COLORS.primary} />
+
+//         <Text style={styles.noSessionTitle}>{t("pallets.noSessionTitle")}</Text>
+//         <Text style={styles.permissionText}>{t("pallets.noSession")}</Text>
+
+//         <Pressable style={styles.button} onPress={() => router.back()}>
+//           <Text style={styles.buttonText}>{t("pallets.back")}</Text>
+//         </Pressable>
+//       </View>
 //     );
-//   };
+//   }
+
+//   const isLastPallet = session.currentPallet >= session.totalPallets;
+
+//   const goToList = () => router.navigate("/list");
 
 //   const handleBarcodeScanned = async ({ data }) => {
 //     if (scanLock.current) return;
@@ -172,22 +170,37 @@
 //         return;
 //       }
 
+//       const entries = palletEntries({
+//         pallets: res.pallets,
+//         quantity: res.countQuantity,
+//       });
+//       const inSeveralPallets = entries.length > 1;
+
 //       showBanner(
 //         res.product.name || res.productNumber,
-//         t("scan.banner.inList", {
-//           count: res.countQuantity,
-//         }),
+//         inSeveralPallets
+//           ? t("pallets.multiBanner", {
+//               total: res.countQuantity,
+//               detail: formatPalletBreakdown(entries, t),
+//             })
+//           : t("scan.banner.inList", {
+//               count: res.countQuantity,
+//             }),
+//         inSeveralPallets ? WARN_BANNER_MS : BANNER_MS,
+//         inSeveralPallets ? "warn" : "ok",
 //       );
 
 //       unlockLater();
 //     } catch (error) {
-//       console.error(
-//         t("scan.errors.processConsole"),
-//         error,
-//       );
+//       console.error(t("scan.errors.processConsole"), error);
 
-//       if (error?.code === "list-finalized") {
-//         showFinalizedAlert(error.message);
+//       if (error?.code === "no-pallet-session") {
+//         Alert.alert(
+//           t("pallets.noSessionTitle"),
+//           t("pallets.noSession"),
+//           [{ text: t("pallets.back"), onPress: () => router.back() }],
+//           { cancelable: false },
+//         );
 //         return;
 //       }
 
@@ -229,18 +242,13 @@
 //     setRegistering(true);
 
 //     try {
-//       const res = await registerProduct(
-//         code,
-//         name,
-//         user.uid,
-//       );
+//       const res = await registerProduct(code, name, user.uid);
 
 //       // Registrar NO suma a la lista. Se ignora este código unos segundos
 //       // para que no se cuente sin querer mientras la cámara lo sigue viendo.
 //       ignoredRef.current = {
 //         code,
-//         until:
-//           Date.now() + IGNORE_AFTER_REGISTER_MS,
+//         until: Date.now() + IGNORE_AFTER_REGISTER_MS,
 //       };
 
 //       setPending(null);
@@ -256,10 +264,14 @@
 
 //       unlockLater();
 //     } catch (error) {
-//       console.error(
-//         t("scan.errors.registerConsole"),
-//         error,
-//       );
+//       // Esa descripción ya existe en otro código: el cuadro queda abierto
+//       // para que la corrijan o cancelen
+//       if (error?.code === "duplicate-description") {
+//         Alert.alert(t("pallets.duplicateTitle"), error.message);
+//         return;
+//       }
+
+//       console.error(t("scan.errors.registerConsole"), error);
 
 //       // El cuadro queda abierto: no se registró nada
 //       Alert.alert(
@@ -278,8 +290,7 @@
 
 //     ignoredRef.current = {
 //       code: pending?.productNumber ?? null,
-//       until:
-//         Date.now() + IGNORE_AFTER_CANCEL_MS,
+//       until: Date.now() + IGNORE_AFTER_CANCEL_MS,
 //     };
 
 //     setPending(null);
@@ -293,6 +304,40 @@
 //     unlockLater();
 //   };
 
+//   const changePallet = async (delta) => {
+//     try {
+//       const next = await movePallet(user.uid, delta);
+//       showBanner(t("pallets.label", { n: next }), "");
+//     } catch (error) {
+//       console.error(t("scan.errors.processConsole"), error);
+//     }
+//   };
+
+//   const handleNextPallet = () => {
+//     // Último palet: se pasa a la lista con la confirmación para finalizar
+//     if (isLastPallet) {
+//       router.navigate({ pathname: "/list", params: { finalize: "1" } });
+//       return;
+//     }
+
+//     if (totals.palletUnits === 0) {
+//       Alert.alert(
+//         t("pallets.emptyPalletTitle"),
+//         t("pallets.emptyPalletMessage"),
+//         [
+//           { text: t("common.cancel"), style: "cancel" },
+//           {
+//             text: t("pallets.emptyPalletConfirm"),
+//             onPress: () => changePallet(1),
+//           },
+//         ],
+//       );
+//       return;
+//     }
+
+//     changePallet(1);
+//   };
+
 //   return (
 //     <View style={styles.container}>
 //       {isFocused && (
@@ -301,58 +346,63 @@
 //           facing="back"
 //           onCameraReady={() => setCameraReady(true)}
 //           onMountError={(e) => {
-//             console.error(
-//               t("scan.errors.cameraConsole"),
-//               e,
-//             );
+//             console.error(t("scan.errors.cameraConsole"), e);
 
-//             setCameraError(
-//               e?.message ||
-//                 t("scan.errors.cameraStart"),
-//             );
+//             setCameraError(e?.message || t("scan.errors.cameraStart"));
 //           }}
-//           onBarcodeScanned={
-//             scanning
-//               ? undefined
-//               : handleBarcodeScanned
-//           }
+//           onBarcodeScanned={scanning ? undefined : handleBarcodeScanned}
 //           barcodeScannerSettings={{
-//             barcodeTypes: [
-//               "qr",
-//               "code128",
-//               "code39",
-//               "ean13",
-//               "ean8",
-//             ],
+//             barcodeTypes: ["qr", "code128", "code39", "ean13", "ean8"],
 //           }}
 //         />
 //       )}
 
-//       <View
-//         style={[styles.fill, styles.overlay]}
-//         pointerEvents="box-none"
-//       >
-//         <View style={styles.header}>
-//           <Pressable
-//             onPress={() => router.back()}
-//             style={styles.closeButton}
-//           >
-//             <Ionicons
-//               name="close"
-//               size={28}
-//               color="#FFF"
-//             />
-//           </Pressable>
+//       <View style={[styles.fill, styles.overlay]} pointerEvents="box-none">
+//         <View style={styles.topArea} pointerEvents="box-none">
+//           <View style={styles.header}>
+//             <Pressable
+//               onPress={() => router.back()}
+//               style={styles.closeButton}
+//             >
+//               <Ionicons name="close" size={28} color="#FFF" />
+//             </Pressable>
 
-//           <Text style={styles.headerTitle}>
-//             {t("scan.title")}
-//           </Text>
+//             <Text style={styles.headerTitle}>{t("scan.title")}</Text>
+//           </View>
+
+//           {/* Palet en curso y cantidad de la lista, en grande */}
+//           <View style={styles.hud} pointerEvents="box-none">
+//             <View style={styles.palletRow} pointerEvents="box-none">
+//               {session.currentPallet > 1 && (
+//                 <Pressable
+//                   style={styles.prevButton}
+//                   onPress={() => changePallet(-1)}
+//                   hitSlop={10}
+//                 >
+//                   <Ionicons name="chevron-back" size={20} color="#FFF" />
+//                 </Pressable>
+//               )}
+
+//               <Text style={styles.palletLabel}>
+//                 {t("pallets.ofTotal", {
+//                   current: session.currentPallet,
+//                   total: session.totalPallets,
+//                 })}
+//               </Text>
+//             </View>
+
+//             <View style={styles.hudNumberBox} pointerEvents="none">
+//               <Text style={styles.hudNumber}>{totals.units}</Text>
+//               <Text style={styles.hudLabel}>{t("pallets.hudTotal")}</Text>
+//             </View>
+
+//             <Text style={styles.hudPallet} pointerEvents="none">
+//               {t("pallets.hudPallet", { count: totals.palletUnits })}
+//             </Text>
+//           </View>
 //         </View>
 
-//         <View
-//           style={styles.targetContainer}
-//           pointerEvents="none"
-//         >
+//         <View style={styles.targetContainer} pointerEvents="none">
 //           <View style={styles.targetFrame} />
 
 //           <Text style={styles.instructionText}>
@@ -364,39 +414,47 @@
 //           </Text>
 //         </View>
 
-//         <View
-//           style={styles.footer}
-//           pointerEvents="box-none"
-//         >
+//         <View style={styles.footer} pointerEvents="box-none">
 //           {banner && (
-//             <View style={styles.banner}>
-//               <Text
-//                 style={styles.bannerTitle}
-//                 numberOfLines={1}
-//               >
+//             <View
+//               style={[
+//                 styles.banner,
+//                 banner.tone === "warn" && styles.bannerWarn,
+//               ]}
+//             >
+//               <Text style={styles.bannerTitle} numberOfLines={1}>
 //                 {banner.title}
 //               </Text>
 
-//               <Text style={styles.bannerSubtitle}>
-//                 {banner.subtitle}
-//               </Text>
+//               {banner.subtitle ? (
+//                 <Text style={styles.bannerSubtitle}>{banner.subtitle}</Text>
+//               ) : null}
 //             </View>
 //           )}
 
-//           <Pressable
-//             style={styles.listButton}
-//             onPress={goToList}
-//           >
-//             <Ionicons
-//               name="list"
-//               size={20}
-//               color="#FFF"
-//             />
+//           <View style={styles.footerButtons}>
+//             <Pressable style={styles.listButton} onPress={goToList}>
+//               <Ionicons name="list" size={20} color="#FFF" />
 
-//             <Text style={styles.listButtonText}>
-//               {t("scan.viewList")}
-//             </Text>
-//           </Pressable>
+//               <Text style={styles.listButtonText}>{t("scan.viewList")}</Text>
+//             </Pressable>
+
+//             <Pressable style={styles.nextButton} onPress={handleNextPallet}>
+//               <Ionicons
+//                 name={
+//                   isLastPallet
+//                     ? "checkmark-circle-outline"
+//                     : "arrow-forward-circle-outline"
+//                 }
+//                 size={20}
+//                 color="#FFF"
+//               />
+
+//               <Text style={styles.nextButtonText} numberOfLines={1}>
+//                 {isLastPallet ? t("pallets.finish") : t("pallets.next")}
+//               </Text>
+//             </Pressable>
+//           </View>
 //         </View>
 //       </View>
 
@@ -408,47 +466,26 @@
 //       >
 //         <KeyboardAvoidingView
 //           style={styles.modalBackdrop}
-//           behavior={
-//             Platform.OS === "ios"
-//               ? "padding"
-//               : undefined
-//           }
+//           behavior={Platform.OS === "ios" ? "padding" : undefined}
 //         >
 //           <View style={styles.modalCard}>
-//             <Text style={styles.modalTitle}>
-//               {t("scan.newProductTitle")}
-//             </Text>
+//             <Text style={styles.modalTitle}>{t("scan.newProductTitle")}</Text>
 
-//             <Text style={styles.modalText}>
-//               {t("scan.newProductMessage")}
-//             </Text>
+//             <Text style={styles.modalText}>{t("scan.newProductMessage")}</Text>
 
-//             <Text style={styles.modalLabel}>
-//               {t("scan.productCode")}
-//             </Text>
+//             <Text style={styles.modalLabel}>{t("scan.productCode")}</Text>
 
-//             <Text
-//               style={styles.modalCode}
-//               numberOfLines={2}
-//             >
+//             <Text style={styles.modalCode} numberOfLines={2}>
 //               {pending?.productNumber}
 //             </Text>
 
-//             <Text style={styles.modalLabel}>
-//               {t("scan.description")}
-//             </Text>
+//             <Text style={styles.modalLabel}>{t("scan.description")}</Text>
 
 //             <TextInput
 //               style={styles.modalInput}
 //               value={description}
-//               onChangeText={(text) =>
-//                 setDescription(
-//                   text.toUpperCase(),
-//                 )
-//               }
-//               placeholder={t(
-//                 "scan.descriptionPlaceholder",
-//               )}
+//               onChangeText={(text) => setDescription(text.toUpperCase())}
+//               placeholder={t("scan.descriptionPlaceholder")}
 //               autoCapitalize="characters"
 //               autoCorrect={false}
 //               autoFocus
@@ -459,20 +496,14 @@
 //             />
 
 //             <Pressable
-//               style={[
-//                 styles.modalPrimary,
-//                 registering &&
-//                   styles.modalDisabled,
-//               ]}
+//               style={[styles.modalPrimary, registering && styles.modalDisabled]}
 //               onPress={handleRegister}
 //               disabled={registering}
 //             >
 //               {registering ? (
 //                 <ActivityIndicator color="#FFF" />
 //               ) : (
-//                 <Text
-//                   style={styles.modalPrimaryText}
-//                 >
+//                 <Text style={styles.modalPrimaryText}>
 //                   {t("scan.register")}
 //                 </Text>
 //               )}
@@ -481,15 +512,12 @@
 //             <Pressable
 //               style={[
 //                 styles.modalSecondary,
-//                 registering &&
-//                   styles.modalDisabled,
+//                 registering && styles.modalDisabled,
 //               ]}
 //               onPress={handleCancelPending}
 //               disabled={registering}
 //             >
-//               <Text
-//                 style={styles.modalSecondaryText}
-//               >
+//               <Text style={styles.modalSecondaryText}>
 //                 {t("common.cancel")}
 //               </Text>
 //             </Pressable>
@@ -522,6 +550,14 @@
 //     padding: 24,
 //   },
 
+//   noSessionTitle: {
+//     fontSize: 20,
+//     fontWeight: "800",
+//     color: COLORS.text,
+//     marginTop: 14,
+//     textAlign: "center",
+//   },
+
 //   permissionText: {
 //     fontSize: 16,
 //     color: COLORS.text,
@@ -545,8 +581,12 @@
 
 //   overlay: {
 //     justifyContent: "space-between",
-//     paddingTop: 60,
-//     paddingBottom: 40,
+//     paddingTop: 56,
+//     paddingBottom: 32,
+//   },
+
+//   topArea: {
+//     alignItems: "stretch",
 //   },
 
 //   header: {
@@ -571,14 +611,81 @@
 //     marginLeft: 16,
 //   },
 
+//   hud: {
+//     alignItems: "center",
+//     marginTop: 4,
+//   },
+
+//   palletRow: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+
+//   prevButton: {
+//     width: 30,
+//     height: 30,
+//     borderRadius: 15,
+//     backgroundColor: "rgba(0,0,0,0.55)",
+//     alignItems: "center",
+//     justifyContent: "center",
+//     marginRight: 8,
+//   },
+
+//   palletLabel: {
+//     color: "#FFF",
+//     fontSize: 16,
+//     fontWeight: "800",
+//     backgroundColor: "rgba(0,0,0,0.55)",
+//     paddingHorizontal: 14,
+//     paddingVertical: 5,
+//     borderRadius: 14,
+//     overflow: "hidden",
+//   },
+
+//   hudNumberBox: {
+//     alignItems: "center",
+//     backgroundColor: "rgba(0,0,0,0.6)",
+//     borderRadius: 20,
+//     paddingHorizontal: 30,
+//     paddingVertical: 6,
+//     marginTop: 8,
+//     minWidth: 150,
+//   },
+
+//   hudNumber: {
+//     color: "#FFF",
+//     fontSize: 58,
+//     lineHeight: 64,
+//     fontWeight: "900",
+//   },
+
+//   hudLabel: {
+//     color: "#DCEBFF",
+//     fontSize: 13,
+//     fontWeight: "700",
+//   },
+
+//   hudPallet: {
+//     color: "#FFF",
+//     fontSize: 13,
+//     fontWeight: "700",
+//     marginTop: 6,
+//     backgroundColor: "rgba(0,0,0,0.5)",
+//     paddingHorizontal: 12,
+//     paddingVertical: 3,
+//     borderRadius: 10,
+//     overflow: "hidden",
+//   },
+
 //   targetContainer: {
 //     alignItems: "center",
 //     justifyContent: "center",
 //   },
 
 //   targetFrame: {
-//     width: 250,
-//     height: 250,
+//     width: 220,
+//     height: 220,
 //     borderWidth: 2,
 //     borderColor: COLORS.primary,
 //     borderRadius: RADIUS.lg,
@@ -588,7 +695,7 @@
 //   instructionText: {
 //     color: "#FFF",
 //     fontSize: 14,
-//     marginTop: 20,
+//     marginTop: 16,
 //     backgroundColor: "rgba(0,0,0,0.6)",
 //     paddingHorizontal: 16,
 //     paddingVertical: 8,
@@ -598,7 +705,7 @@
 
 //   footer: {
 //     alignItems: "center",
-//     paddingHorizontal: 20,
+//     paddingHorizontal: 16,
 //     minHeight: 110,
 //     justifyContent: "flex-end",
 //   },
@@ -611,6 +718,10 @@
 //     marginBottom: 12,
 //     alignItems: "center",
 //     maxWidth: "100%",
+//   },
+
+//   bannerWarn: {
+//     backgroundColor: "rgba(217,119,6,0.97)",
 //   },
 
 //   bannerTitle: {
@@ -626,20 +737,46 @@
 //     textAlign: "center",
 //   },
 
+//   footerButtons: {
+//     flexDirection: "row",
+//     gap: 10,
+//     width: "100%",
+//   },
+
 //   listButton: {
+//     flex: 1,
 //     flexDirection: "row",
 //     alignItems: "center",
-//     backgroundColor: COLORS.primary,
-//     paddingHorizontal: 20,
-//     paddingVertical: 12,
+//     justifyContent: "center",
+//     backgroundColor: "rgba(0,0,0,0.6)",
+//     borderWidth: 1,
+//     borderColor: "rgba(255,255,255,0.5)",
+//     paddingVertical: 13,
 //     borderRadius: RADIUS.md,
 //   },
 
 //   listButtonText: {
 //     color: "#FFF",
 //     fontWeight: "700",
+//     fontSize: 14,
+//     marginLeft: 6,
+//   },
+
+//   nextButton: {
+//     flex: 1.3,
+//     flexDirection: "row",
+//     alignItems: "center",
+//     justifyContent: "center",
+//     backgroundColor: COLORS.primary,
+//     paddingVertical: 13,
+//     borderRadius: RADIUS.md,
+//   },
+
+//   nextButtonText: {
+//     color: "#FFF",
+//     fontWeight: "800",
 //     fontSize: 15,
-//     marginLeft: 8,
+//     marginLeft: 6,
 //   },
 
 //   modalBackdrop: {
@@ -727,7 +864,8 @@
 // });
 
 
-import React, { useCallback, useRef, useState } from "react";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -745,7 +883,11 @@ import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, RADIUS } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
-import { registerProduct, scanProduct } from "../services/productService";
+import {
+  checkNewProduct,
+  registerProduct,
+  scanProduct,
+} from "../services/productService";
 import {
   formatPalletBreakdown,
   movePallet,
@@ -776,16 +918,40 @@ export default function ScanScreen() {
   const [cameraError, setCameraError] = useState(null);
   const [banner, setBanner] = useState(null);
 
-  // Producto nuevo pendiente de registrar: { productNumber }
+  // Producto nuevo pendiente de registrar: { productNumber, detected }
   const [pending, setPending] = useState(null);
   const [description, setDescription] = useState("");
   const [registering, setRegistering] = useState(false);
+  // Comparación con la base: null si se puede registrar, o el producto que ya existe
+  const [conflict, setConflict] = useState(null);
 
   const scanLock = useRef(false);
   const [scanning, setScanning] = useState(false);
   const unlockTimer = useRef(null);
   const bannerTimer = useRef(null);
   const ignoredRef = useRef({ code: null, until: 0 });
+
+  // Compara con la base cada vez que cambia el producto nuevo o su nombre
+  useEffect(() => {
+    if (!pending) {
+      setConflict(null);
+      return undefined;
+    }
+
+    let active = true;
+
+    checkNewProduct(pending.productNumber, description)
+      .then((result) => {
+        if (active) setConflict(result);
+      })
+      .catch(() => {
+        if (active) setConflict(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pending, description]);
 
   useFocusEffect(
     useCallback(() => {
@@ -891,10 +1057,12 @@ export default function ScanScreen() {
 
       if (res.state === "unregistered") {
         // No se crea ni se suma nada. El escáner queda bloqueado hasta
-        // registrar la descripción o cancelar.
-        setDescription("");
+        // confirmar el registro o cancelar. Si se reconoce el modelo del código,
+        // el nombre se completa solo (sin espacios).
+        setDescription(res.suggestedName || "");
         setPending({
           productNumber: res.productNumber,
+          detected: Boolean(res.suggestedName),
         });
         return;
       }
@@ -955,7 +1123,7 @@ export default function ScanScreen() {
   };
 
   const handleRegister = async () => {
-    if (!pending || registering) return;
+    if (!pending || registering || conflict) return;
 
     const code = pending.productNumber;
     const name = description.trim();
@@ -1066,6 +1234,9 @@ export default function ScanScreen() {
 
     changePallet(1);
   };
+
+  const hasName = description.trim().length > 0;
+  const canConfirm = hasName && !conflict && !registering;
 
   return (
     <View style={styles.container}>
@@ -1200,7 +1371,11 @@ export default function ScanScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{t("scan.newProductTitle")}</Text>
 
-            <Text style={styles.modalText}>{t("scan.newProductMessage")}</Text>
+            <Text style={styles.modalText}>
+              {pending?.detected
+                ? t("pallets.detectedMessage")
+                : t("scan.newProductMessage")}
+            </Text>
 
             <Text style={styles.modalLabel}>{t("scan.productCode")}</Text>
 
@@ -1208,32 +1383,56 @@ export default function ScanScreen() {
               {pending?.productNumber}
             </Text>
 
-            <Text style={styles.modalLabel}>{t("scan.description")}</Text>
+            <Text style={styles.modalLabel}>
+              {pending?.detected
+                ? t("pallets.detectedModel")
+                : t("scan.description")}
+            </Text>
 
             <TextInput
-              style={styles.modalInput}
+              style={[
+                styles.modalInput,
+                pending?.detected && styles.modalInputDetected,
+              ]}
               value={description}
               onChangeText={(text) => setDescription(text.toUpperCase())}
               placeholder={t("scan.descriptionPlaceholder")}
               autoCapitalize="characters"
               autoCorrect={false}
-              autoFocus
+              autoFocus={!pending?.detected}
               maxLength={80}
               editable={!registering}
               returnKeyType="done"
               onSubmitEditing={handleRegister}
             />
 
+            {/* Resultado de comparar con la base */}
+            {hasName ? (
+              conflict ? (
+                <Text style={styles.statusBad}>
+                  ✕{" "}
+                  {t("pallets.existsInDb", {
+                    name: conflict.name || conflict.code,
+                  })}
+                </Text>
+              ) : (
+                <Text style={styles.statusOk}>✓ {t("pallets.notInDb")}</Text>
+              )
+            ) : null}
+
             <Pressable
-              style={[styles.modalPrimary, registering && styles.modalDisabled]}
+              style={[
+                styles.modalPrimary,
+                !canConfirm && styles.modalPrimaryDisabled,
+              ]}
               onPress={handleRegister}
-              disabled={registering}
+              disabled={!canConfirm}
             >
               {registering ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
                 <Text style={styles.modalPrimaryText}>
-                  {t("scan.register")}
+                  {t("pallets.confirmRegister")}
                 </Text>
               )}
             </Pressable>
@@ -1543,8 +1742,8 @@ const styles = StyleSheet.create({
   },
 
   modalCode: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "600",
     color: COLORS.text,
   },
 
@@ -1558,12 +1757,38 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
 
+  modalInputDetected: {
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    borderColor: COLORS.primary,
+    backgroundColor: "#F5F9FF",
+  },
+
+  statusOk: {
+    color: "#067647",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 10,
+  },
+
+  statusBad: {
+    color: "#B42318",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 10,
+  },
+
   modalPrimary: {
     backgroundColor: COLORS.primary,
     paddingVertical: 14,
     borderRadius: RADIUS.md,
     alignItems: "center",
     marginTop: 18,
+  },
+
+  modalPrimaryDisabled: {
+    opacity: 0.4,
   },
 
   modalPrimaryText: {

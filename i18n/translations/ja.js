@@ -62,6 +62,12 @@ export default {
     checkError: "チェックできませんでした。",
     checkConsole: "チェックのエラー:",
     recordPallets: "{{count}} パレット",
+    detectedMessage:
+      "商品のモデルを検出しました。確認してデータベースに追加してください。登録してもリストには加算されません。そのあと、もう一度スキャンしてカウントしてください。",
+    detectedModel: "検出されたモデル",
+    notInDb: "データベースにありません",
+    existsInDb: "すでにデータベースにあります: {{name}}",
+    confirmRegister: "確認して登録",
   },
 
   history: {

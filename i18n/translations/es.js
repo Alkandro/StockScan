@@ -64,6 +64,12 @@ export default {
     checkError: "No se pudo marcar la pieza.",
     checkConsole: "Error al marcar la pieza:",
     recordPallets: "{{count}} palets",
+    detectedMessage:
+      "Se detectó el modelo del producto. Confirmá para agregarlo a la base. Registrarlo no lo suma a tu lista: después escanealo de nuevo para contarlo.",
+    detectedModel: "Modelo detectado",
+    notInDb: "No existe en la base",
+    existsInDb: "Ya existe en la base: {{name}}",
+    confirmRegister: "Confirmar y registrar",
   },
 
   history: {

@@ -51,6 +51,39 @@
 //   return readLocal(LOCAL_KEYS.catalog, EMPTY.catalog);
 // }
 
+// // Descripción comparable: sin tildes, sin espacios de más y en mayúsculas
+// function normalizeDescription(value) {
+//   let text = String(value ?? "");
+
+//   try {
+//     text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+//   } catch {
+//     // Si el dispositivo no lo soporta, se compara tal cual
+//   }
+
+//   return text.replace(/\s+/g, " ").trim().toUpperCase();
+// }
+
+// /** Busca otro producto con la misma descripción. */
+// function findDuplicate(products, name, ignoreId) {
+//   const normalized = normalizeDescription(name);
+//   if (!normalized) return null;
+
+//   return (
+//     Object.values(products).find(
+//       (product) =>
+//         product.id !== ignoreId &&
+//         normalizeDescription(product.name) === normalized,
+//     ) || null
+//   );
+// }
+
+// function duplicateMessage(existing) {
+//   return i18n.t("pallets.duplicateDescription", {
+//     code: existing.productNumber,
+//   });
+// }
+
 // /**
 //  * true si la sesión actual es la del administrador (ADMIN_EMAIL).
 //  * No lee Firestore. Se mantiene async para no cambiar a quienes la llaman.
@@ -230,7 +263,8 @@
 
 // /**
 //  * Escanea un código contra el catálogo del celular.
-//  * - Producto registrado: suma 1 a la lista y devuelve state "registered".
+//  * - Producto registrado: suma 1 a la lista, en el palet en curso, y devuelve
+//  *   state "registered" con countQuantity (total), pallet y pallets (detalle).
 //  * - Producto inexistente o en borrador viejo: NO escribe nada ni suma;
 //  *   devuelve state "unregistered" para que la app pida la descripción.
 //  * Los productos viejos sin campo `status` se consideran registrados.
@@ -258,10 +292,12 @@
 //       state: "unregistered",
 //       product: null,
 //       countQuantity: null,
+//       pallet: null,
+//       pallets: null,
 //     };
 //   }
 
-//   const countQuantity = await addToLocalCount(userId, productId, cleanQr);
+//   const counted = await addToLocalCount(userId, productId, cleanQr);
 
 //   return {
 //     success: true,
@@ -269,13 +305,16 @@
 //     productNumber: cleanQr,
 //     state: "registered",
 //     product: { ...product },
-//     countQuantity,
+//     countQuantity: counted.quantity,
+//     pallet: counted.pallet,
+//     pallets: counted.pallets,
 //   };
 // }
 
 // /**
 //  * Registra un producto nuevo con su descripción en el celular. NO lo suma a
 //  * ninguna lista: el conteo se hace escaneando el producto ya registrado.
+//  * Si ya existe otro producto con esa descripción, lanza "duplicate-description".
 //  * Queda pendiente y se sube a Firebase solo cuando hay conexión.
 //  */
 // export async function registerProduct(qrData, description, userId) {
@@ -314,6 +353,16 @@
 //         };
 //       }
 
+//       // La misma descripción en otro código sería el mismo producto repetido
+//       const duplicate = findDuplicate(draft.products, name, productId);
+
+//       if (duplicate) {
+//         const err = new Error(duplicateMessage(duplicate));
+//         err.code = "duplicate-description";
+//         err.existingCode = duplicate.productNumber;
+//         throw err;
+//       }
+
 //       draft.products[productId] = {
 //         id: productId,
 //         productNumber: cleanQr,
@@ -343,6 +392,7 @@
 //  * Guarda la descripción de un producto existente (siempre en mayúsculas).
 //  * - confirm = true: completa un borrador viejo y lo pasa a "registered".
 //  * - confirm = false: edición de un producto registrado (solo administrador).
+//  * No permite una descripción que ya tenga otro producto.
 //  * Requiere conexión, salvo para productos que todavía no se subieron.
 //  */
 // export async function saveProductFields(
@@ -366,10 +416,16 @@
 //     ? i18n.t("productService.success.productRegistered")
 //     : i18n.t("productService.success.changesSaved");
 
-//   // Producto registrado en el celular que todavía no se subió:
-//   // se corrige acá y se sube con la próxima sincronización
 //   const catalog = await readCatalog();
 
+//   const duplicate = findDuplicate(catalog.products, name, productId);
+
+//   if (duplicate) {
+//     return { success: false, message: duplicateMessage(duplicate) };
+//   }
+
+//   // Producto registrado en el celular que todavía no se subió:
+//   // se corrige acá y se sube con la próxima sincronización
 //   if (catalog.products[productId]?.pending) {
 //     await updateLocal(LOCAL_KEYS.catalog, EMPTY.catalog, (draft) => {
 //       const current = draft.products[productId];
@@ -535,6 +591,7 @@ import {
 import { getAuth } from "firebase/auth";
 import i18n from "i18next";
 import { db } from "../lib/firebase";
+import { modelMatchKey, parseBarcode } from "./barcodeFormat";
 import { addToLocalCount, productIdFromQr } from "./countService";
 import { EMPTY, LOCAL_KEYS, readLocal, updateLocal } from "./localStore";
 import { isOnline, withTimeout } from "./network";
@@ -577,7 +634,8 @@ function readCatalog() {
   return readLocal(LOCAL_KEYS.catalog, EMPTY.catalog);
 }
 
-// Descripción comparable: sin tildes, sin espacios de más y en mayúsculas
+// Descripción comparable: sin tildes, sin espacios y en mayúsculas
+// (así "UGJGC51BR#EL" y "UGJGC51BR #EL" cuentan como la misma)
 function normalizeDescription(value) {
   let text = String(value ?? "");
 
@@ -587,7 +645,33 @@ function normalizeDescription(value) {
     // Si el dispositivo no lo soporta, se compara tal cual
   }
 
-  return text.replace(/\s+/g, " ").trim().toUpperCase();
+  return text.replace(/\s+/g, "").toUpperCase();
+}
+
+// Código con el que se guarda un producto nuevo: el modelo sin espacios
+// (ej. UGJGC51BR#EL). Si el formato no se reconoce, el código completo normalizado.
+function productNumberFromCode(raw) {
+  const parsed = parseBarcode(raw);
+  return parsed.matched ? parsed.modelName : parsed.modelKey;
+}
+
+/**
+ * Busca un producto por su código: primero por ID de documento y, si no
+ * está, por MODELO (ignora fecha, lote y contador del código de barras).
+ * Así una unidad con otra fecha se reconoce como el mismo producto.
+ */
+function findProductByCode(products, code) {
+  const byId = products[productIdFromQr(code)];
+  if (byId) return byId;
+
+  const key = modelMatchKey(code);
+  if (!key) return null;
+
+  return (
+    Object.values(products).find(
+      (product) => modelMatchKey(product.productNumber) === key,
+    ) || null
+  );
 }
 
 /** Busca otro producto con la misma descripción. */
@@ -621,11 +705,22 @@ export async function isAdminUser() {
   );
 }
 
-/** Busca primero en el catálogo del celular; si no está y hay conexión, en Firebase. */
+/**
+ * Busca primero en el catálogo del celular; si no está y hay conexión, en Firebase.
+ * Acepta el ID del documento o el ID derivado del código (el que usa la lista).
+ */
 export async function getProductById(productId) {
   const catalog = await readCatalog();
-  const local = catalog.products[productId];
-  if (local) return { ...local };
+
+  const direct = catalog.products[productId];
+  if (direct) return { ...direct };
+
+  const derived = Object.values(catalog.products).find(
+    (product) =>
+      product.productNumber &&
+      productIdFromQr(product.productNumber) === productId,
+  );
+  if (derived) return { ...derived };
 
   if (!(await isOnline())) return null;
 
@@ -697,11 +792,10 @@ export async function getPendingCount() {
 
 /**
  * Registro en Firebase (usa el celular solo para decidir; acá se confirma).
- * Si otro usuario ya lo había registrado, no lo pisa: queda el de él.
- * También completa borradores viejos.
+ * El documento se identifica por el modelo: si otro celular ya lo había
+ * registrado, no se crea un segundo producto. También completa borradores viejos.
  */
-async function registerProductRemote(productNumber, name, userId) {
-  const productId = productIdFromQr(productNumber);
+async function registerProductRemote(productId, productNumber, name, userId) {
   const productRef = doc(db, PRODUCTS, productId);
 
   return runTransaction(db, async (transaction) => {
@@ -757,7 +851,12 @@ export async function pushPendingRegistrations(userId) {
   for (const product of pending) {
     try {
       const result = await withTimeout(
-        registerProductRemote(product.productNumber, product.name, userId),
+        registerProductRemote(
+          product.id,
+          product.productNumber,
+          product.name,
+          userId,
+        ),
         REMOTE_TIMEOUT_MS,
       );
 
@@ -789,10 +888,12 @@ export async function pushPendingRegistrations(userId) {
 
 /**
  * Escanea un código contra el catálogo del celular.
+ * Se compara por MODELO: la fecha, el lote y el contador no importan.
  * - Producto registrado: suma 1 a la lista, en el palet en curso, y devuelve
  *   state "registered" con countQuantity (total), pallet y pallets (detalle).
  * - Producto inexistente o en borrador viejo: NO escribe nada ni suma;
- *   devuelve state "unregistered" para que la app pida la descripción.
+ *   devuelve state "unregistered" y suggestedName (el modelo sin espacios,
+ *   o "" si el formato del código no se reconoce).
  * Los productos viejos sin campo `status` se consideran registrados.
  */
 export async function scanProduct(qrData, userId) {
@@ -805,17 +906,19 @@ export async function scanProduct(qrData, userId) {
     throw new Error(i18n.t("productService.errors.noSession"));
   }
 
-  const productId = productIdFromQr(cleanQr);
   const catalog = await readCatalog();
-  const product = catalog.products[productId];
+  const product = findProductByCode(catalog.products, cleanQr);
   const status = product ? product.status || "registered" : null;
 
   if (!product || status === "draft") {
+    const parsed = parseBarcode(cleanQr);
+
     return {
       success: true,
-      id: productId,
+      id: productIdFromQr(cleanQr),
       productNumber: cleanQr,
       state: "unregistered",
+      suggestedName: parsed.matched ? parsed.modelName : "",
       product: null,
       countQuantity: null,
       pallet: null,
@@ -823,12 +926,19 @@ export async function scanProduct(qrData, userId) {
     };
   }
 
-  const counted = await addToLocalCount(userId, productId, cleanQr);
+  // El renglón de la lista usa el código del producto registrado, no el leído
+  const productNumber = product.productNumber || cleanQr;
+
+  const counted = await addToLocalCount(
+    userId,
+    productIdFromQr(productNumber),
+    productNumber,
+  );
 
   return {
     success: true,
-    id: productId,
-    productNumber: cleanQr,
+    id: product.id,
+    productNumber,
     state: "registered",
     product: { ...product },
     countQuantity: counted.quantity,
@@ -838,8 +948,47 @@ export async function scanProduct(qrData, userId) {
 }
 
 /**
+ * Compara un producto nuevo con la base del celular, antes de registrarlo.
+ * Devuelve null si se puede registrar, o { type, name, code } del producto
+ * existente si ya está ese modelo ("code") o esa descripción ("name").
+ */
+export async function checkNewProduct(qrData, description) {
+  const code = (qrData || "").trim();
+  if (!code) return null;
+
+  const catalog = await readCatalog();
+  const existing = findProductByCode(catalog.products, code);
+
+  // Ese modelo ya está registrado
+  if (existing && (existing.status || "registered") !== "draft") {
+    return {
+      type: "code",
+      name: existing.name,
+      code: existing.productNumber,
+    };
+  }
+
+  const targetId = existing
+    ? existing.id
+    : productIdFromQr(productNumberFromCode(code));
+
+  const duplicate = findDuplicate(catalog.products, description, targetId);
+
+  if (duplicate) {
+    return {
+      type: "name",
+      name: duplicate.name,
+      code: duplicate.productNumber,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Registra un producto nuevo con su descripción en el celular. NO lo suma a
  * ninguna lista: el conteo se hace escaneando el producto ya registrado.
+ * Se guarda solo el MODELO del código, sin espacios (sin fecha ni lote).
  * Si ya existe otro producto con esa descripción, lanza "duplicate-description".
  * Queda pendiente y se sube a Firebase solo cuando hay conexión.
  */
@@ -863,24 +1012,28 @@ export async function registerProduct(qrData, description, userId) {
     throw err;
   }
 
-  const productId = productIdFromQr(cleanQr);
+  const productNumber = productNumberFromCode(cleanQr);
 
   const result = await updateLocal(
     LOCAL_KEYS.catalog,
     EMPTY.catalog,
     (draft) => {
-      const existing = draft.products[productId];
+      // ¿Ya está registrado ese modelo? (aunque el código completo sea otro)
+      const existing = findProductByCode(draft.products, cleanQr);
 
       if (existing && (existing.status || "registered") !== "draft") {
         return {
-          id: productId,
+          id: existing.id,
           name: existing.name || name,
           alreadyRegistered: true,
         };
       }
 
+      // Borrador viejo de este modelo: se completa; si no, se crea uno nuevo
+      const targetId = existing ? existing.id : productIdFromQr(productNumber);
+
       // La misma descripción en otro código sería el mismo producto repetido
-      const duplicate = findDuplicate(draft.products, name, productId);
+      const duplicate = findDuplicate(draft.products, name, targetId);
 
       if (duplicate) {
         const err = new Error(duplicateMessage(duplicate));
@@ -889,9 +1042,9 @@ export async function registerProduct(qrData, description, userId) {
         throw err;
       }
 
-      draft.products[productId] = {
-        id: productId,
-        productNumber: cleanQr,
+      draft.products[targetId] = {
+        id: targetId,
+        productNumber: existing?.productNumber || productNumber,
         name,
         status: "registered",
         updatedAtMs: Date.now(),
@@ -899,7 +1052,7 @@ export async function registerProduct(qrData, description, userId) {
         pendingBy: userId,
       };
 
-      return { id: productId, name, alreadyRegistered: false };
+      return { id: targetId, name, alreadyRegistered: false };
     },
   );
 
