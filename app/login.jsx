@@ -1,6 +1,10 @@
-import { useState } from "react";
+
+import { useEffect, useRef, useState } from "react";
+
 import {
   Alert,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,11 +13,14 @@ import {
   TextInput,
   View,
 } from "react-native";
+
 import { router } from "expo-router";
 import { Logo } from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
 import { COLORS, RADIUS } from "../constants/theme";
 import { useTranslation } from "react-i18next";
+
+const FADE_DURATION = 900;
 
 export default function LoginScreen() {
   const { t, i18n } = useTranslation();
@@ -22,6 +29,18 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Animación de entrada del Login.
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: FADE_DURATION,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [opacity]);
 
   const languages = [
     {
@@ -76,81 +95,97 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={styles.inner}>
-        <Logo dark />
+    <View style={styles.container}>
+      <Animated.View
+        style={[
+          styles.animatedContainer,
+          {
+            opacity,
+          },
+        ]}
+      >
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.inner}>
+            <Logo dark />
 
-        <View style={styles.form}>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder={t("login.email")}
-            placeholderTextColor="#91A0B2"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={styles.input}
-          />
+            <View style={styles.form}>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder={t("login.email")}
+                placeholderTextColor="#91A0B2"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.input}
+              />
 
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder={t("login.password")}
-            placeholderTextColor="#91A0B2"
-            secureTextEntry
-            style={styles.input}
-          />
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder={t("login.password")}
+                placeholderTextColor="#91A0B2"
+                secureTextEntry
+                style={styles.input}
+              />
 
-          <Pressable
-            style={styles.button}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading
-                ? t("login.loggingIn")
-                : t("login.loginButton")}
-            </Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.footer}>
-          {t("login.poweredBy")}
-        </Text>
-
-        <View style={styles.languageContainer}>
-          {languages.map((language) => {
-            const isActive = i18n.language
-              ?.toLowerCase()
-              .startsWith(language.code);
-
-            return (
               <Pressable
-                key={language.code}
-                onPress={() => changeLanguage(language.code)}
-                style={[
-                  styles.languageButton,
-                  isActive && styles.languageButtonActive,
-                ]}
+                style={styles.button}
+                onPress={handleLogin}
+                disabled={loading}
               >
-                <Text style={styles.flag}>
-                  {language.flag}
+                <Text style={styles.buttonText}>
+                  {loading
+                    ? t("login.loggingIn")
+                    : t("login.loginButton")}
                 </Text>
               </Pressable>
-            );
-          })}
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+            </View>
+
+            <Text style={styles.footer}>
+              {t("login.poweredBy")}
+            </Text>
+
+            <View style={styles.languageContainer}>
+              {languages.map((language) => {
+                const isActive = i18n.language
+                  ?.toLowerCase()
+                  .startsWith(language.code);
+
+                return (
+                  <Pressable
+                    key={language.code}
+                    onPress={() => changeLanguage(language.code)}
+                    style={[
+                      styles.languageButton,
+                      isActive && styles.languageButtonActive,
+                    ]}
+                  >
+                    <Text style={styles.flag}>
+                      {language.flag}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.dark,
+    backgroundColor: "#020817",
+  },
+
+  animatedContainer: {
+    flex: 1,
+    backgroundColor: "#020817",
   },
 
   inner: {

@@ -1,18 +1,32 @@
+
 {
   "expo": {
     "name": "StockScan",
     "slug": "stockscan",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "scheme": "stockscan",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "androidStatusBar": {
+      "backgroundColor": "#020817",
+      "barStyle": "light-content"
+    },
     "plugins": [
       [
         "expo-camera",
         {
           "cameraPermission": "StockScan necesita la cámara para leer códigos QR.",
           "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#020817",
+          "image": "./assets/splash.png",
+          "imageWidth": 360,
+          "resizeMode": "contain"
         }
       ],
       "expo-router",
@@ -22,8 +36,7 @@
       "typedRoutes": true
     },
     "ios": {
-      "bundleIdentifier": "com.alkandro.stockscan",
-      
+      "bundleIdentifier": "com.alkandro.stockscan"
     },
     "extra": {
       "router": {},
@@ -32,8 +45,8 @@
       }
     },
     "updates": {
-  "url": "https://u.expo.dev/409819c7-6051-4d14-855d-c4de552ec89a"
-},
+      "url": "https://u.expo.dev/409819c7-6051-4d14-855d-c4de552ec89a"
+    },
     "runtimeVersion": {
       "policy": "appVersion"
     },
