@@ -23,7 +23,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.alkandro.stockscan",
-      "runtimeVersion": "exposdk:57.0.0"
+      
     },
     "extra": {
       "router": {},
@@ -32,8 +32,8 @@
       }
     },
     "updates": {
-      "url": "https://u.expo.dev/409819c7-6051-4d14-855d-c4de552ec89a"
-    },
+  "url": "https://u.expo.dev/409819c7-6051-4d14-855d-c4de552ec89a"
+},
     "runtimeVersion": {
       "policy": "appVersion"
     },
